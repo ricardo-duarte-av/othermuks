@@ -8,6 +8,7 @@ import type {
   ClientState,
   DBAccountData,
   DBInvitedRoom,
+  DBReceipt,
   DBRoom,
   DBSpaceEdge,
   EventID,
@@ -27,6 +28,11 @@ import type {
 import { markOnce } from '@/lib/perf'
 import { isPendingEvent, normalizeEvent, threadRootOf, type TimelineEvent } from './events'
 
+/** A user's latest read receipt in the main timeline, resolved to the event's rowid. */
+export interface RoomReceipt extends DBReceipt {
+  event_rowid: EventRowID
+}
+
 export interface RoomData {
   meta: DBRoom
   /** Sorted ascending by timeline_rowid. */
@@ -34,6 +40,8 @@ export interface RoomData {
   /** Local echoes that haven't appeared in the timeline yet. */
   pending: EventRowID[]
   state: Record<EventType, Record<string, EventRowID>>
+  /** One receipt per user: the furthest event in the timeline they've read. */
+  receipts: Record<UserID, RoomReceipt>
   typing: UserID[]
   hasMore: boolean
   paginating: boolean
@@ -89,6 +97,7 @@ function newRoom(meta: DBRoom): RoomData {
     timeline: [],
     pending: [],
     state: {},
+    receipts: {},
     typing: [],
     hasMore: true,
     paginating: false,
@@ -158,6 +167,45 @@ function mergeTimeline(existing: TimelineRowTuple[], incoming: TimelineRowTuple[
   return [...merged.values()].sort(byTimelineRowID)
 }
 
+/**
+ * Applies receipts the way gomuks web does: a user's receipt only moves forward in the timeline, and
+ * receipts for events that aren't in the loaded timeline are ignored. Thread receipts are skipped so
+ * reading a thread doesn't move someone's avatar in the main timeline.
+ */
+function mergeReceipts(
+  room: RoomData,
+  incoming: Record<EventID, DBReceipt[]> | null | undefined,
+  eventIDs: Record<EventID, EventRowID>,
+): Record<UserID, RoomReceipt> {
+  if (!incoming || !room.timeline.length) return room.receipts
+  let positions: Map<EventRowID, number> | undefined
+  const positionOf = (rowid: EventRowID | undefined) => {
+    if (rowid === undefined) return undefined
+    positions ??= new Map(room.timeline.map(tuple => [tuple.event_rowid, tuple.timeline_rowid]))
+    return positions.get(rowid)
+  }
+
+  let receipts = room.receipts
+  let copied = false
+  for (const [eventID, list] of Object.entries(incoming)) {
+    const rowid = eventIDs[eventID]
+    const position = positionOf(rowid)
+    if (rowid === undefined || position === undefined) continue
+    for (const receipt of list) {
+      if (receipt.thread_id && receipt.thread_id !== 'main') continue
+      const existing = receipts[receipt.user_id]
+      const existingPosition = existing ? positionOf(existing.event_rowid) : undefined
+      if (existingPosition !== undefined && existingPosition >= position) continue
+      if (!copied) {
+        receipts = { ...receipts }
+        copied = true
+      }
+      receipts[receipt.user_id] = { ...receipt, event_rowid: rowid }
+    }
+  }
+  return receipts
+}
+
 const sameIDs = (a: RoomID[], b: RoomID[]) => a.length === b.length && a.every((id, i) => id === b[i])
 
 function computeOrder(rooms: Record<RoomID, RoomData>, prev: ChatState) {
@@ -211,6 +259,7 @@ function applySync(data: SyncCompleteData) {
       for (const [type, keys] of Object.entries(sync.state)) state[type] = { ...state[type], ...keys }
       room.state = state
     }
+    room.receipts = mergeReceipts(room, sync.receipts, tables.eventIDs)
     rooms[roomID] = room
   }
 
@@ -325,18 +374,14 @@ export async function loadOlder(roomID: RoomID) {
     tables.add(resp.events)
     tables.add(resp.related_events)
     const tuples = resp.events.map(evt => ({ timeline_rowid: evt.timeline_rowid, event_rowid: evt.rowid }))
-    set({
-      ...tables.patch,
-      rooms: {
-        ...s.rooms,
-        [roomID]: {
-          ...current,
-          timeline: mergeTimeline(current.timeline, tuples),
-          hasMore: resp.has_more && tuples.length > 0,
-          paginating: false,
-        },
-      },
-    })
+    const updated: RoomData = {
+      ...current,
+      timeline: mergeTimeline(current.timeline, tuples),
+      hasMore: resp.has_more && tuples.length > 0,
+      paginating: false,
+    }
+    updated.receipts = mergeReceipts(updated, resp.receipts, tables.eventIDs)
+    set({ ...tables.patch, rooms: { ...s.rooms, [roomID]: updated } })
   } catch (err) {
     console.error('Pagination failed for', roomID, err)
     patchRoom(roomID, { paginating: false })

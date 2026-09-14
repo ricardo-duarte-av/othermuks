@@ -1,11 +1,12 @@
 import { Lock, PanelRight, Search, Upload } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { memo, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { RoomID } from '@/api/types'
+import type { RoomID, UserID } from '@/api/types'
 import { formatNames } from '@/lib/format'
 import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/chat'
-import { fallbackDisplayName } from '@/store/events'
+import { displayNameOf } from '@/store/events'
+import { useMember } from '@/store/hooks'
 import { useUI } from '@/store/ui'
 import { Avatar, IconButton } from '@/ui/primitives'
 import { Timeline } from '@/ui/timeline/Timeline'
@@ -40,26 +41,74 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
   )
 }
 
-const NO_NAMES: string[] = []
+const NO_USERS: UserID[] = []
+const MAX_TYPING_AVATARS = 5
+
+const TypingAvatar = memo(function TypingAvatar({ roomID, userID }: { roomID: RoomID; userID: UserID }) {
+  const member = useMember(roomID, userID)
+  return (
+    <motion.span
+      layout
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.5 }}
+      transition={{ type: 'spring', stiffness: 460, damping: 32 }}
+      className="block rounded-full ring-2 ring-[var(--timeline-bg)]"
+      title={userID}
+    >
+      <Avatar mxc={member?.avatar_url} id={userID} name={displayNameOf(userID, member)} size={18} />
+    </motion.span>
+  )
+})
 
 function TypingIndicator({ roomID }: { roomID: RoomID }) {
-  const names = useChat(
+  const typing = useChat(
     useShallow(s => {
       const room = s.rooms[roomID]
       const own = selectOwnUserID(s)
-      if (!room?.typing.length) return NO_NAMES
-      return room.typing
-        .filter(userID => userID !== own)
-        .map(userID => {
-          const rowid = room.state['m.room.member']?.[userID]
-          const name = rowid === undefined ? undefined : s.events[rowid]?.content.displayname
-          return typeof name === 'string' && name ? name : fallbackDisplayName(userID)
-        })
+      return room?.typing.length ? room.typing.filter(userID => userID !== own) : NO_USERS
     }),
   )
+  const names = useChat(
+    useShallow(s => {
+      const room = s.rooms[roomID]
+      return typing.map(userID => {
+        const rowid = room?.state['m.room.member']?.[userID]
+        return displayNameOf(userID, rowid === undefined ? undefined : (s.events[rowid]?.content as { displayname?: unknown }))
+      })
+    }),
+  )
+  const description =
+    typing.length > 4 ? `${typing.length} people are typing` : `${formatNames(names)} ${typing.length === 1 ? 'is' : 'are'} typing`
+
   return (
-    <div className="typing-indicator h-5 shrink-0 truncate px-5 text-xs text-muted" aria-live="polite">
-      {names.length > 0 && `${formatNames(names)} ${names.length === 1 ? 'is' : 'are'} typing…`}
+    <div className="typing-indicator flex h-6 shrink-0 items-center px-5 text-xs text-muted" aria-live="polite">
+      <AnimatePresence>
+        {typing.length > 0 && (
+          <motion.div
+            key="typing"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.15 }}
+            className="flex min-w-0 items-center gap-2"
+          >
+            <span className="flex shrink-0 -space-x-1.5">
+              <AnimatePresence initial={false}>
+                {typing.slice(0, MAX_TYPING_AVATARS).map(userID => (
+                  <TypingAvatar key={userID} roomID={roomID} userID={userID} />
+                ))}
+              </AnimatePresence>
+            </span>
+            <span className="truncate">{description}</span>
+            <span className="typing-dots flex shrink-0 items-end gap-0.5 pb-0.5" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

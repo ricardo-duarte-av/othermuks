@@ -41,6 +41,7 @@ import { openLightbox, openMessageDialog, openProfile, openThread, showToast, us
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
+import { ReadReceipts } from './ReadReceipts'
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂']
 const EDITABLE_MSGTYPES = new Set(['m.text', 'm.emote', 'm.notice'])
@@ -52,9 +53,11 @@ interface RowProps {
   newDay: boolean
   /** Set when the row is rendered inside a thread panel. */
   threadRoot?: EventID
+  /** Other users whose read receipt is on this row (main timeline only). */
+  readers?: UserID[]
 }
 
-export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot }: RowProps) {
+export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot, readers }: RowProps) {
   const evt = useChat(s => s.events[rowid])
   const ownUserID = useChat(selectOwnUserID)
   if (!evt) return null
@@ -65,6 +68,11 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
         <MessageRow roomID={roomID} evt={evt} compact={compact} own={evt.sender === ownUserID} threadRoot={threadRoot} />
       ) : (
         <StateRow roomID={roomID} evt={evt} />
+      )}
+      {readers && readers.length > 0 && (
+        <div className="px-4 pb-0.5">
+          <ReadReceipts roomID={roomID} readers={readers} />
+        </div>
       )}
     </>
   )

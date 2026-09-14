@@ -366,6 +366,23 @@
     background: var(--composer-bg);
   }
 
+  .typing-dots i {
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: typing-dot 1.2s infinite ease-in-out;
+  }
+
+  .typing-dots i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .typing-dots i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
   /* A message jumped to from a reply: flash, then fade back. */
   .chat-message[data-highlight] {
     animation: message-highlight 2.6s ease-out;
@@ -385,6 +402,19 @@
   100% {
     background: transparent;
     box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
   }
 }
 

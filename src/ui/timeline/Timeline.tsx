@@ -1,9 +1,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { LayoutGroup } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { EventRowID, RoomID } from '@/api/types'
+import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
-import { loadOlder, markRoomRead, useChat } from '@/store/chat'
+import { loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
 import { isMessageLike, isPendingEvent, isRenderable, type TimelineEvent } from '@/store/events'
 import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
@@ -13,6 +14,10 @@ const GROUP_WINDOW = 5 * 60_000
 const LOAD_THRESHOLD = 800
 const BOTTOM_THRESHOLD = 48
 const NO_ROWS: EventRowID[] = []
+// Separators for the receipt layout signature; can't appear in user IDs.
+const ROW_SEPARATOR = '\u0001'
+const USER_SEPARATOR = '\u0002'
+const FIELD_SEPARATOR = '\u0003'
 
 interface Item {
   rowid: EventRowID
@@ -42,6 +47,58 @@ function useVisibleRowIDs(roomID: RoomID) {
   )
 }
 
+/**
+ * Which users' read receipts sit under each visible row (other people only, oldest receipt first).
+ * A receipt on a hidden event (reaction, edit, redaction…) shows on the nearest visible row before it.
+ * Rows whose readers didn't change keep the same array, so only affected rows re-render.
+ */
+function useReceiptLayout(roomID: RoomID): Map<EventRowID, UserID[]> {
+  const signature = useChat(s => {
+    const room = s.rooms[roomID]
+    if (!room) return ''
+    const receipts = Object.values(room.receipts)
+    if (!receipts.length) return ''
+    const own = selectOwnUserID(s)
+
+    const displayRow = new Map<EventRowID, EventRowID>()
+    let lastVisible: EventRowID | undefined
+    for (const tuple of room.timeline) {
+      const evt = s.events[tuple.event_rowid]
+      if (evt && isRenderable(evt)) lastVisible = evt.rowid
+      if (lastVisible !== undefined) displayRow.set(tuple.event_rowid, lastVisible)
+    }
+
+    const rows = new Map<EventRowID, { userID: UserID; timestamp: number }[]>()
+    for (const receipt of receipts) {
+      if (receipt.user_id === own) continue
+      const row = displayRow.get(receipt.event_rowid)
+      if (row === undefined) continue
+      let readers = rows.get(row)
+      if (!readers) rows.set(row, (readers = []))
+      readers.push({ userID: receipt.user_id, timestamp: receipt.timestamp })
+    }
+    return [...rows]
+      .map(([row, readers]) => `${row}${FIELD_SEPARATOR}${readers.sort((a, b) => a.timestamp - b.timestamp).map(r => r.userID).join(USER_SEPARATOR)}`)
+      .join(ROW_SEPARATOR)
+  })
+
+  const previous = useRef(new Map<EventRowID, UserID[]>())
+  return useMemo(() => {
+    const next = new Map<EventRowID, UserID[]>()
+    if (signature) {
+      for (const part of signature.split(ROW_SEPARATOR)) {
+        const [rowPart, usersPart] = part.split(FIELD_SEPARATOR)
+        const row = Number(rowPart)
+        const users = usersPart.split(USER_SEPARATOR)
+        const old = previous.current.get(row)
+        next.set(row, old && old.length === users.length && old.every((u, i) => u === users[i]) ? old : users)
+      }
+    }
+    previous.current = next
+    return next
+  }, [signature])
+}
+
 function markLatestRead(roomID: RoomID, rowids: EventRowID[]) {
   if (!document.hasFocus()) return
   const { events } = useChat.getState()
@@ -56,6 +113,7 @@ function markLatestRead(roomID: RoomID, rowids: EventRowID[]) {
 
 export function Timeline({ roomID }: { roomID: RoomID }) {
   const rowids = useVisibleRowIDs(roomID)
+  const receiptLayout = useReceiptLayout(roomID)
   const timelineLength = useChat(s => s.rooms[roomID]?.timeline.length ?? 0)
   const hasMore = useChat(s => s.rooms[roomID]?.hasMore ?? false)
   const paginating = useChat(s => s.rooms[roomID]?.paginating ?? false)
@@ -165,22 +223,31 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
         role="log"
         className="timeline flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [overflow-anchor:none]"
       >
-        <div className="relative mt-auto w-full shrink-0" style={{ height: totalSize }}>
-          {virtualizer.getVirtualItems().map(virtualItem => {
-            const item = items[virtualItem.index]
-            return (
-              <div
-                key={virtualItem.key}
-                data-index={virtualItem.index}
-                ref={virtualizer.measureElement}
-                className="absolute left-0 top-0 w-full"
-                style={{ transform: `translateY(${virtualItem.start}px)` }}
-              >
-                <TimelineRow roomID={roomID} rowid={item.rowid} compact={item.compact} newDay={item.newDay} />
-              </div>
-            )
-          })}
-        </div>
+        {/* Receipt avatars share layout IDs per user, so they glide between rows as receipts move. */}
+        <LayoutGroup id={`receipts:${roomID}`}>
+          <div className="relative mt-auto w-full shrink-0" style={{ height: totalSize }}>
+            {virtualizer.getVirtualItems().map(virtualItem => {
+              const item = items[virtualItem.index]
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${virtualItem.start}px)` }}
+                >
+                  <TimelineRow
+                    roomID={roomID}
+                    rowid={item.rowid}
+                    compact={item.compact}
+                    newDay={item.newDay}
+                    readers={receiptLayout.get(item.rowid)}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </LayoutGroup>
       </div>
     </div>
   )
