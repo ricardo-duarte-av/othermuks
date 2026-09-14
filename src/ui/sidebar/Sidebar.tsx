@@ -1,20 +1,20 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Search } from 'lucide-react'
-import { memo, useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatRoomTime } from '@/lib/format'
 import { markOnce } from '@/lib/perf'
 import { useChat } from '@/store/chat'
-import { isMessageLike, localpart, previewText } from '@/store/events'
+import { fallbackDisplayName, isMessageLike, previewText } from '@/store/events'
 import { DM_SPACE, HOME_SPACE, spaceListRows } from '@/store/spaces'
 import { openRoom, setSidebarWidth, SIDEBAR_DEFAULT_WIDTH, useUI } from '@/store/ui'
 import { Avatar, Kbd } from '@/ui/primitives'
+import { ResizeHandle } from '@/ui/ResizeHandle'
 
 const ROOM_ROW_HEIGHT = 56
 const SECTION_HEADER_HEIGHT = 32
-const RESIZE_KEY_STEP = 16
 
 /** Falls back to Home when the remembered space was left or hasn't synced. */
 function useEffectiveSpaceID() {
@@ -39,12 +39,12 @@ const RoomListItem = memo(function RoomListItem({ roomID, active }: { roomID: Ro
     const rowid = s.rooms[roomID]?.meta.preview_event_rowid
     return rowid ? s.events[rowid] : undefined
   })
-  // Display name from room state when known, otherwise the MXID localpart.
+  // Per-room display name from room state when known, otherwise the capitalized localpart.
   const senderName = useChat(s => {
     if (!preview) return undefined
     const rowid = s.rooms[roomID]?.state['m.room.member']?.[preview.sender]
     const name = rowid === undefined ? undefined : s.events[rowid]?.content.displayname
-    return typeof name === 'string' && name ? name : localpart(preview.sender)
+    return typeof name === 'string' && name ? name : fallbackDisplayName(preview.sender)
   })
   if (!meta) return null
 
@@ -142,53 +142,6 @@ function RoomList({ spaceID }: { spaceID: string }) {
   )
 }
 
-function ResizeHandle() {
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    const handle = e.currentTarget
-    const startX = e.clientX
-    const startWidth = useUI.getState().sidebarWidth
-    handle.setPointerCapture(e.pointerId)
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-
-    const onMove = (ev: globalThis.PointerEvent) => setSidebarWidth(startWidth + ev.clientX - startX)
-    const onEnd = () => {
-      handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', onEnd)
-      handle.removeEventListener('pointercancel', onEnd)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', onEnd)
-    handle.addEventListener('pointercancel', onEnd)
-  }
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-    e.preventDefault()
-    const { sidebarWidth } = useUI.getState()
-    setSidebarWidth(sidebarWidth + (e.key === 'ArrowRight' ? RESIZE_KEY_STEP : -RESIZE_KEY_STEP))
-  }
-
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize room list (double-click to reset)"
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={onKeyDown}
-      onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
-      className="sidebar-resize-handle group absolute inset-y-0 -right-1.5 z-10 w-3 cursor-col-resize touch-none outline-none"
-    >
-      <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-accent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100" />
-    </div>
-  )
-}
-
 export function Sidebar() {
   const width = useUI(s => s.sidebarWidth)
   const spaceID = useEffectiveSpaceID()
@@ -207,7 +160,13 @@ export function Sidebar() {
         </span>
       </button>
       <RoomList spaceID={spaceID} />
-      <ResizeHandle />
+      <ResizeHandle
+        edge="right"
+        getWidth={() => useUI.getState().sidebarWidth}
+        onResize={setSidebarWidth}
+        defaultWidth={SIDEBAR_DEFAULT_WIDTH}
+        label="Resize room list"
+      />
     </aside>
   )
 }

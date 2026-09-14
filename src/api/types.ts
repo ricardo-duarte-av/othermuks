@@ -242,6 +242,12 @@ export interface PaginationResponse {
   has_more: boolean
 }
 
+/** Response of the get_profile command. `bio` is gomuks' sanitized HTML of the extended profile biography. */
+export interface GetProfileResponse {
+  profile: Record<string, unknown> & { displayname?: string; avatar_url?: ContentURI }
+  bio?: { html: string; edit_source?: string }
+}
+
 export interface ManualPaginationResponse {
   events: RawDBEvent[]
   next_batch?: string

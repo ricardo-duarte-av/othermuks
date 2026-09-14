@@ -5,7 +5,7 @@ import type { EventID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
 import { displayContent } from '@/store/events'
-import { useMember } from '@/store/hooks'
+import { useDisplayName } from '@/store/hooks'
 import { useUI } from '@/store/ui'
 import { IconButton, Spinner } from '@/ui/primitives'
 
@@ -28,7 +28,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const replyTo = useChat(s => (replyToRowID == null ? undefined : s.events[replyToRowID]))
   const editing = useChat(s => (editingRowID == null ? undefined : s.events[editingRowID]))
   const roomName = useChat(s => s.rooms[roomID]?.meta.name)
-  const replyMember = useMember(roomID, replyTo?.sender)
+  const replyName = useDisplayName(roomID, replyTo?.sender)
 
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -131,7 +131,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const context = editing
     ? { icon: <Pencil size={13} />, label: 'Editing message' }
     : replyTo
-      ? { icon: <Reply size={13} />, label: `Replying to ${replyMember?.displayname || replyTo.sender}` }
+      ? { icon: <Reply size={13} />, label: `Replying to ${replyName}` }
       : null
 
   return (

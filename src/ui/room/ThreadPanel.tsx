@@ -1,5 +1,4 @@
 import { X } from 'lucide-react'
-import { motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
@@ -11,7 +10,6 @@ import { IconButton, Spinner } from '@/ui/primitives'
 import { TimelineRow } from '@/ui/timeline/TimelineRow'
 import { Composer } from './Composer'
 
-export const THREAD_PANEL_WIDTH = 420
 const GROUP_WINDOW = 5 * 60_000
 const BOTTOM_THRESHOLD = 48
 const NO_ROWS: EventRowID[] = []
@@ -26,9 +24,11 @@ function useThreadReplies(rootID: EventID) {
   )
 }
 
-export function ThreadPanel({ roomID, rootID }: { roomID: RoomID; rootID: EventID }) {
+/** Thread view of the right panel: root message, replies, and a composer that sends into the thread. */
+export function ThreadView({ roomID, rootID }: { roomID: RoomID; rootID: EventID }) {
   const rootRowID = useChat(s => s.eventIDs[rootID])
   const replies = useThreadReplies(rootID)
+  const highlight = useUI(s => s.highlight)
   const [nextBatch, setNextBatch] = useState<string>()
   const [loading, setLoading] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -76,6 +76,15 @@ export function ThreadPanel({ roomID, rootID }: { roomID: RoomID; rootID: EventI
     }
   }, [items, rootRowID])
 
+  // Jump-to-message inside the thread.
+  useEffect(() => {
+    if (!highlight) return
+    const el = scrollRef.current?.querySelector(`[data-rowid="${highlight.rowid}"]`)
+    if (!el) return
+    atBottom.current = false
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [highlight])
+
   async function loadOlderReplies() {
     const el = scrollRef.current
     if (!nextBatch || loading || !el) return
@@ -92,15 +101,7 @@ export function ThreadPanel({ roomID, rootID }: { roomID: RoomID; rootID: EventI
   }
 
   return (
-    <motion.aside
-      initial={{ x: THREAD_PANEL_WIDTH }}
-      animate={{ x: 0 }}
-      exit={{ x: THREAD_PANEL_WIDTH }}
-      transition={{ type: 'spring', stiffness: 520, damping: 46, mass: 0.8 }}
-      className="thread-panel absolute inset-y-0 right-0 z-20 flex flex-col border-l border-border bg-[var(--drawer-bg)]"
-      style={{ width: THREAD_PANEL_WIDTH }}
-      aria-label="Thread"
-    >
+    <>
       <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
         <h2 className="text-sm font-semibold">Thread</h2>
         <IconButton label="Close thread" shortcut="Esc" className="ml-auto" onClick={() => useUI.setState({ threadRoot: null })}>
@@ -155,6 +156,6 @@ export function ThreadPanel({ roomID, rootID }: { roomID: RoomID; rootID: EventI
         ))}
       </div>
       <Composer roomID={roomID} threadRoot={rootID} />
-    </motion.aside>
+    </>
   )
 }

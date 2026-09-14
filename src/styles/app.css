@@ -365,4 +365,25 @@
   .composer {
     background: var(--composer-bg);
   }
+
+  /* A message jumped to from a reply: flash, then fade back. */
+  .chat-message[data-highlight] {
+    animation: message-highlight 2.6s ease-out;
+  }
+
+  .reply-preview .message-body p + p {
+    margin-top: 0.25em;
+  }
+}
+
+@keyframes message-highlight {
+  0%,
+  35% {
+    background: oklch(from var(--accent) l c h / 0.2);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
 }

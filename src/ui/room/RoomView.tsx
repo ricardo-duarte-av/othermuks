@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { RoomID } from '@/api/types'
 import { formatNames } from '@/lib/format'
 import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/chat'
+import { fallbackDisplayName } from '@/store/events'
 import { useUI } from '@/store/ui'
 import { Avatar, IconButton } from '@/ui/primitives'
 import { Timeline } from '@/ui/timeline/Timeline'
@@ -12,7 +13,7 @@ import { Composer } from './Composer'
 
 function RoomHeader({ roomID }: { roomID: RoomID }) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
-  const drawerOpen = useUI(s => s.drawerOpen)
+  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID)
   if (!meta) return null
   return (
     <header className="room-header flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
@@ -30,8 +31,8 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
       <IconButton
         label="Room details"
         shortcut="Ctrl ."
-        data-active={drawerOpen || undefined}
-        onClick={() => useUI.setState({ drawerOpen: !drawerOpen })}
+        data-active={detailsVisible || undefined}
+        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null })}
       >
         <PanelRight size={17} />
       </IconButton>
@@ -52,7 +53,7 @@ function TypingIndicator({ roomID }: { roomID: RoomID }) {
         .map(userID => {
           const rowid = room.state['m.room.member']?.[userID]
           const name = rowid === undefined ? undefined : s.events[rowid]?.content.displayname
-          return typeof name === 'string' && name ? name : userID
+          return typeof name === 'string' && name ? name : fallbackDisplayName(userID)
         })
     }),
   )

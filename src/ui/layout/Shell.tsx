@@ -7,9 +7,8 @@ import { openRoom, useUI } from '@/store/ui'
 import { CommandPalette } from '@/ui/palette/CommandPalette'
 import { Kbd, Spinner } from '@/ui/primitives'
 import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
-import { DRAWER_WIDTH, RoomDrawer } from '@/ui/room/RoomDrawer'
+import { RightPanel, type RightPanelKind } from '@/ui/room/RightPanel'
 import { RoomView } from '@/ui/room/RoomView'
-import { THREAD_PANEL_WIDTH, ThreadPanel } from '@/ui/room/ThreadPanel'
 import { Sidebar } from '@/ui/sidebar/Sidebar'
 import { SpaceRail } from '@/ui/sidebar/SpaceRail'
 
@@ -40,13 +39,17 @@ function useGlobalShortcuts() {
         useUI.setState({ paletteOpen: !ui.paletteOpen })
       } else if (mod && e.key === '.') {
         e.preventDefault()
-        // Shows room details (replacing an open thread), or hides them.
-        useUI.setState({ drawerOpen: ui.threadRoot ? true : !ui.drawerOpen, threadRoot: null })
+        // Shows room details (replacing a thread or profile on top), or hides them.
+        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID
+        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null })
+      } else if (e.key === 'Escape' && !isEditable(e.target) && !overlayOpen && (ui.profileUserID || ui.threadRoot || ui.drawerOpen)) {
+        // Close the top-most right panel view, revealing what's underneath.
+        if (ui.profileUserID) useUI.setState({ profileUserID: null })
+        else if (ui.threadRoot) useUI.setState({ threadRoot: null })
+        else useUI.setState({ drawerOpen: false })
       } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault()
         stepRoom(e.key === 'ArrowUp' ? -1 : 1)
-      } else if (e.key === 'Escape' && !isEditable(e.target) && !overlayOpen && (ui.threadRoot || ui.drawerOpen)) {
-        useUI.setState(ui.threadRoot ? { threadRoot: null } : { drawerOpen: false })
       } else if (!mod && !e.altKey && e.key.length === 1 && !isEditable(e.target) && !overlayOpen) {
         // Type anywhere to start composing.
         document.getElementById('composer-input')?.focus()
@@ -103,22 +106,24 @@ export function Shell() {
   const activeRoomID = useUI(s => s.activeRoomID)
   const drawerOpen = useUI(s => s.drawerOpen)
   const threadRoot = useUI(s => s.threadRoot)
+  const profileUserID = useUI(s => s.profileUserID)
+  const rightPanelWidth = useUI(s => s.rightPanelWidth)
   const hasRoom = useChat(s => !!activeRoomID && !!s.rooms[activeRoomID])
-  const panel = !hasRoom ? null : threadRoot ? 'thread' : drawerOpen ? 'details' : null
-  const panelWidth = panel === 'thread' ? THREAD_PANEL_WIDTH : panel === 'details' ? DRAWER_WIDTH : 0
+
+  let panel: RightPanelKind | null = null
+  if (hasRoom) panel = profileUserID ? 'user' : threadRoot ? 'thread' : drawerOpen ? 'details' : null
 
   return (
     <div className="app-shell flex h-full">
       <SpaceRail />
       <Sidebar />
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
-        <main className="flex min-w-0 flex-1 flex-col bg-[var(--timeline-bg)]" style={{ marginRight: panelWidth }}>
+        <main className="flex min-w-0 flex-1 flex-col bg-[var(--timeline-bg)]" style={{ marginRight: panel ? rightPanelWidth : 0 }}>
           <ConnectionBanner />
           {hasRoom ? <RoomView key={activeRoomID} roomID={activeRoomID!} /> : <EmptyState />}
         </main>
         <AnimatePresence initial={false}>
-          {panel === 'details' && <RoomDrawer key="room-drawer" roomID={activeRoomID!} />}
-          {panel === 'thread' && <ThreadPanel key={`thread:${threadRoot}`} roomID={activeRoomID!} rootID={threadRoot!} />}
+          {panel && <RightPanel key="right-panel" roomID={activeRoomID!} kind={panel} />}
         </AnimatePresence>
       </div>
       <CommandPalette />

@@ -15,20 +15,22 @@ import {
 import { memo, useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { client } from '@/api/client'
 import { mediaURL, userColorIndex } from '@/api/media'
-import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID } from '@/api/types'
+import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatDay, formatFull, formatTime } from '@/lib/format'
 import { fetchEvent, selectOwnUserID, useChat } from '@/store/chat'
 import {
   describeStateEvent,
   displayContent,
+  displayNameOf,
+  fallbackDisplayName,
   isMessageLike,
   isPendingEvent,
-  previewText,
   type TimelineEvent,
 } from '@/store/events'
 import { useMember } from '@/store/hooks'
-import { openThread, showToast, useUI } from '@/store/ui'
+import { jumpToEvent } from '@/store/navigation'
+import { openProfile, openThread, showToast, useUI } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
@@ -76,10 +78,11 @@ const userColor = (userID: string) => `var(--user-color-${userColorIndex(userID)
 function StateRow({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
   const sender = useMember(roomID, evt.sender)
   const target = useMember(roomID, evt.state_key)
-  const senderName = sender?.displayname || evt.sender
+  const senderName = displayNameOf(evt.sender, sender)
   const ownName = evt.type === 'm.room.member' ? (evt.content.displayname as string | undefined) : undefined
   const prevName = evt.unsigned.prev_content?.displayname as string | undefined
-  const targetName = ownName || prevName || target?.displayname || evt.state_key || ''
+  const targetName =
+    ownName || prevName || target?.displayname || (evt.state_key ? fallbackDisplayName(evt.state_key) : '')
   return (
     <div className="state-event group flex items-center gap-3 px-4 py-0.5 text-xs text-muted">
       <div className="w-10 shrink-0" />
@@ -102,7 +105,8 @@ interface MessageRowProps {
 function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) {
   const member = useMember(roomID, evt.sender)
   const lastEdit = useChat(s => (evt.last_edit_rowid ? s.events[evt.last_edit_rowid] : undefined))
-  const name = member?.displayname || evt.sender
+  const highlighted = useUI(s => s.highlight?.rowid === evt.rowid)
+  const name = displayNameOf(evt.sender, member)
   const { content, localContent } = displayContent(evt, lastEdit)
   const relation = evt.content['m.relates_to'] as RelatesTo | undefined
   // Thread replies carry a fallback reply to the previous thread message; only explicit replies get a preview.
@@ -112,9 +116,11 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
   return (
     <div
       className={cn('chat-message group relative flex gap-3 px-4', compact ? 'py-px' : 'pb-px pt-2')}
+      data-rowid={evt.rowid}
       data-own={own || undefined}
       data-pending={pending || undefined}
       data-failed={evt.send_error ? true : undefined}
+      data-highlight={highlighted || undefined}
     >
       <div className="flex w-10 shrink-0 justify-end">
         {compact ? (
@@ -122,15 +128,22 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
             {formatTime(evt.timestamp)}
           </time>
         ) : (
-          <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={40} className="mt-0.5" />
+          <ProfileButton userID={evt.sender} name={name} className="mt-0.5 h-10 rounded-full">
+            <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={40} />
+          </ProfileButton>
         )}
       </div>
       <div className={cn('chat-bubble flex-1', pending && 'opacity-60')}>
         {!compact && (
           <div className="flex items-baseline gap-2 leading-tight">
-            <span className="sender-name truncate text-sm font-semibold" style={{ color: userColor(evt.sender) }}>
+            <ProfileButton
+              userID={evt.sender}
+              name={name}
+              className="sender-name min-w-0 truncate text-sm font-semibold hover:underline"
+              style={{ color: userColor(evt.sender) }}
+            >
               {name}
-            </span>
+            </ProfileButton>
             <time title={formatFull(evt.timestamp)} className="shrink-0 text-[11px] tabular-nums text-muted">
               {formatTime(evt.timestamp)}
             </time>
@@ -147,6 +160,28 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
         <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} />
       )}
     </div>
+  )
+}
+
+/** Avatar or name that opens the user's profile; hovering shows their user ID. */
+function ProfileButton({
+  userID,
+  name,
+  className,
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { userID: UserID; name: string }) {
+  return (
+    <button
+      type="button"
+      title={userID}
+      aria-label={`Show profile of ${name}`}
+      onClick={() => openProfile(userID)}
+      className={cn('outline-none focus-visible:ring-2 focus-visible:ring-accent', className)}
+      {...props}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -187,12 +222,19 @@ function MessageContent({ evt, content, localContent, senderName }: ContentProps
   }
 }
 
-function TextBody({ content, localContent, msgtype, senderName }: Omit<ContentProps, 'evt'> & { msgtype: string }) {
+interface TextBodyProps extends Omit<ContentProps, 'evt'> {
+  msgtype: string
+  className?: string
+  /** Emoji-only messages render large, except where space is tight (reply previews). */
+  allowBigEmoji?: boolean
+}
+
+function TextBody({ content, localContent, msgtype, senderName, className, allowBigEmoji = true }: TextBodyProps) {
   const html = localContent?.sanitized_html
   return (
     <div
-      className={cn('message-body text-[15px]', msgtype === 'm.notice' && 'text-muted')}
-      data-big-emoji={localContent?.big_emoji || undefined}
+      className={cn('message-body text-[15px]', msgtype === 'm.notice' && 'text-muted', className)}
+      data-big-emoji={(allowBigEmoji && localContent?.big_emoji) || undefined}
     >
       {msgtype === 'm.emote' && <span className="font-medium">* {senderName} </span>}
       {html ? (
@@ -210,23 +252,27 @@ function fitSize(w: number | undefined, h: number | undefined, maxW: number, max
   return { width: Math.round(w * scale), height: Math.round(h * scale) }
 }
 
+/** Original media URL, plus the sender-provided thumbnail for inline display where it makes sense. */
+function mediaSources(content: MessageEventContent) {
+  const info = content.info ?? {}
+  const url = mediaURL(content.file?.url ?? content.url, !!content.file)
+  const thumbnail = info.thumbnail_file ? mediaURL(info.thumbnail_file.url, true) : mediaURL(info.thumbnail_url)
+  const inline = thumbnail && info.mimetype !== 'image/gif' ? thumbnail : url
+  return { url, thumbnail, inline }
+}
+
 function MediaContent({ content, msgtype }: { content: MessageEventContent; msgtype: string }) {
-  const encrypted = !!content.file
-  const url = mediaURL(content.file?.url ?? content.url, encrypted)
+  const { url, thumbnail, inline } = mediaSources(content)
   const info = content.info ?? {}
   if (!url) return <p className="text-sm italic text-muted">Invalid media</p>
 
-  // Show the sender-provided thumbnail inline and keep the original for click-through,
-  // so a room full of multi-megabyte photos doesn't download them all.
-  const thumbnail = info.thumbnail_file ? mediaURL(info.thumbnail_file.url, true) : mediaURL(info.thumbnail_url)
   const isSticker = msgtype === 'm.sticker'
   const size = fitSize(info.w, info.h, isSticker ? 180 : 420, isSticker ? 180 : 340)
   const boxStyle = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined
 
   switch (msgtype) {
     case 'm.image':
-    case 'm.sticker': {
-      const inlineURL = msgtype === 'm.image' && thumbnail && info.mimetype !== 'image/gif' ? thumbnail : url
+    case 'm.sticker':
       return (
         <a
           href={url}
@@ -235,10 +281,9 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
           className={cn('media-image mt-1 block max-w-full overflow-hidden rounded-lg', !isSticker && 'border border-border bg-surface')}
           style={boxStyle ?? { maxWidth: 420 }}
         >
-          <img src={inlineURL} alt={content.body} loading="lazy" decoding="async" className="size-full object-cover" />
+          <img src={isSticker ? url : inline} alt={content.body} loading="lazy" decoding="async" className="size-full object-cover" />
         </a>
       )
-    }
     case 'm.video':
       return (
         <video
@@ -275,27 +320,77 @@ function ReplyPreview({ roomID, eventID }: { roomID: RoomID; eventID: EventID })
     return rowid === undefined ? undefined : s.events[rowid]
   })
   const member = useMember(roomID, evt?.sender)
+  const lastEdit = useChat(s => (evt?.last_edit_rowid ? s.events[evt.last_edit_rowid] : undefined))
   useEffect(() => {
     if (!evt) void fetchEvent(roomID, eventID)
   }, [evt, roomID, eventID])
 
+  if (!evt) {
+    return (
+      <div className="reply-preview my-1 rounded-md border-l-2 border-border bg-surface/60 px-2.5 py-1 text-[13px] text-muted">
+        Loading reply…
+      </div>
+    )
+  }
+
+  const name = displayNameOf(evt.sender, member)
+  const color = userColor(evt.sender)
+  const jump = () => jumpToEvent(roomID, eventID)
+
   return (
     <div
-      className="reply-preview my-0.5 flex min-w-0 max-w-xl items-center gap-1.5 border-l-2 pl-2 text-[13px]"
-      style={{ borderColor: evt ? userColor(evt.sender) : 'var(--border)' }}
+      role="button"
+      tabIndex={0}
+      title="Jump to message"
+      onClick={e => {
+        // Links inside the quoted message keep working.
+        if ((e.target as HTMLElement).closest('a')) return
+        jump()
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          jump()
+        }
+      }}
+      className="reply-preview my-1 flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border-l-2 bg-surface/60 py-1 pl-2.5 pr-3 text-[13px] outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent"
+      style={{ borderColor: color }}
     >
-      {evt ? (
-        <>
-          <span className="shrink-0 font-medium" style={{ color: userColor(evt.sender) }}>
-            {member?.displayname || evt.sender}
-          </span>
-          <span className="truncate text-muted">{previewText(evt)}</span>
-        </>
-      ) : (
-        <span className="text-muted">Loading reply…</span>
-      )}
+      <span className="flex min-w-0 items-center gap-1.5" title={evt.sender}>
+        <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={16} />
+        <span className="truncate font-medium" style={{ color }}>
+          {name}
+        </span>
+      </span>
+      <ReplyBody evt={evt} lastEdit={lastEdit} senderName={name} />
     </div>
   )
+}
+
+function ReplyBody({ evt, lastEdit, senderName }: { evt: TimelineEvent; lastEdit?: TimelineEvent; senderName: string }) {
+  if (evt.redacted_by) return <span className="italic text-muted">Message deleted</span>
+  if (evt.type === 'm.room.encrypted') return <span className="italic text-muted">Encrypted message</span>
+  const { content, localContent } = displayContent(evt, lastEdit)
+  const msgtype = evt.type === 'm.sticker' ? 'm.sticker' : content.msgtype
+
+  if (msgtype === 'm.image' || msgtype === 'm.sticker') {
+    const { inline } = mediaSources(content)
+    const hasCaption = !!content.filename && content.body !== content.filename
+    return (
+      <span className="flex flex-col items-start gap-1">
+        {inline && <img src={inline} alt={content.body} loading="lazy" className="max-h-28 max-w-48 rounded object-cover" />}
+        {hasCaption && <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} className="text-[13px] text-fg/80" allowBigEmoji={false} />}
+      </span>
+    )
+  }
+  if (msgtype === 'm.video' || msgtype === 'm.audio' || msgtype === 'm.file') {
+    return (
+      <span className="flex items-center gap-1.5 text-muted">
+        <FileText size={13} /> {content.filename ?? content.body}
+      </span>
+    )
+  }
+  return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} className="text-[13px] text-fg/80" allowBigEmoji={false} />
 }
 
 function ThreadSummary({ eventID }: { eventID: EventID }) {

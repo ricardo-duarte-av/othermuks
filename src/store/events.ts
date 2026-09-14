@@ -29,6 +29,30 @@ export function localpart(userID: UserID): string {
   return userID.replace(/^@/, '').split(':')[0]
 }
 
+/** "@alice:example.org" → "Alice": used when a user has no display name. */
+export function fallbackDisplayName(userID: UserID): string {
+  const [first = '', ...rest] = Array.from(localpart(userID))
+  return first ? first.toUpperCase() + rest.join('') : userID
+}
+
+/** A user's display name from their (per-room) member content, or the capitalized localpart. */
+export function displayNameOf(userID: UserID, member?: { displayname?: unknown }): string {
+  const name = member?.displayname
+  return typeof name === 'string' && name.trim() ? name : fallbackDisplayName(userID)
+}
+
+/** The event exactly as gomuks delivered it (encrypted type/content, with any decrypted_* fields alongside). */
+export function originalEvent(evt: TimelineEvent): Record<string, unknown> {
+  const raw: Record<string, unknown> = { ...evt }
+  delete raw.encrypted
+  delete raw.original
+  if (evt.original) {
+    raw.type = evt.original.type
+    raw.content = evt.original.content
+  }
+  return raw
+}
+
 /** The thread root this event replies in, if any. */
 export function threadRootOf(evt: TimelineEvent): EventID | undefined {
   if (evt.relation_type === 'm.thread' && evt.relates_to) return evt.relates_to

@@ -1,25 +1,32 @@
 import { Lock, LockOpen, Users, X } from 'lucide-react'
-import { motion } from 'motion/react'
 import { memo, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID, UserID } from '@/api/types'
 import { useChat } from '@/store/chat'
+import { displayNameOf, fallbackDisplayName } from '@/store/events'
 import { useJoinedMembers, useMember } from '@/store/hooks'
-import { useUI } from '@/store/ui'
+import { openProfile, useUI } from '@/store/ui'
 import { Avatar, IconButton, Spinner } from '@/ui/primitives'
 
-export const DRAWER_WIDTH = 320
 const MEMBER_RENDER_LIMIT = 300
 
 const MemberRow = memo(function MemberRow({ roomID, userID }: { roomID: RoomID; userID: UserID }) {
   const member = useMember(roomID, userID)
+  const name = displayNameOf(userID, member)
   return (
-    <li className="member-row flex h-10 items-center gap-2.5 rounded-lg px-2 hover:bg-hover">
-      <Avatar mxc={member?.avatar_url} id={userID} name={member?.displayname} size={28} />
-      <div className="min-w-0 leading-tight">
-        <div className="truncate text-sm">{member?.displayname || userID}</div>
-        {member?.displayname && <div className="truncate text-[11px] text-muted">{userID}</div>}
-      </div>
+    <li>
+      <button
+        type="button"
+        onClick={() => openProfile(userID)}
+        title={userID}
+        className="member-row flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors hover:bg-hover"
+      >
+        <Avatar mxc={member?.avatar_url} id={userID} name={name} size={28} />
+        <div className="min-w-0 leading-tight">
+          <div className="truncate text-sm">{name}</div>
+          <div className="truncate text-[11px] text-muted">{userID}</div>
+        </div>
+      </button>
     </li>
   )
 })
@@ -33,14 +40,14 @@ function MemberList({ roomID }: { roomID: RoomID }) {
       return memberIDs.map(userID => {
         const rowid = room?.state['m.room.member']?.[userID]
         const name = rowid === undefined ? undefined : s.events[rowid]?.content.displayname
-        return typeof name === 'string' ? name : ''
+        return typeof name === 'string' && name ? name : fallbackDisplayName(userID)
       })
     }),
   )
   const sorted = useMemo(
     () =>
       memberIDs
-        .map((userID, i) => ({ userID, sortKey: (names[i] || userID.slice(1)).toLocaleLowerCase() }))
+        .map((userID, i) => ({ userID, sortKey: names[i].toLocaleLowerCase() }))
         .sort((a, b) => a.sortKey.localeCompare(b.sortKey)),
     [memberIDs, names],
   )
@@ -63,19 +70,12 @@ function MemberList({ roomID }: { roomID: RoomID }) {
   )
 }
 
-export function RoomDrawer({ roomID }: { roomID: RoomID }) {
+/** Room details view of the right panel: room info plus a member list whose rows open profiles. */
+export function RoomDetails({ roomID }: { roomID: RoomID }) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
   if (!meta) return null
   return (
-    <motion.aside
-      initial={{ x: DRAWER_WIDTH }}
-      animate={{ x: 0 }}
-      exit={{ x: DRAWER_WIDTH }}
-      transition={{ type: 'spring', stiffness: 520, damping: 46, mass: 0.8 }}
-      className="room-drawer absolute inset-y-0 right-0 z-20 flex flex-col border-l border-border bg-[var(--drawer-bg)]"
-      style={{ width: DRAWER_WIDTH }}
-      aria-label="Room details"
-    >
+    <>
       <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
         <h2 className="text-sm font-semibold">Room details</h2>
         <IconButton label="Close" shortcut="Esc" className="ml-auto" onClick={() => useUI.setState({ drawerOpen: false })}>
@@ -93,6 +93,6 @@ export function RoomDrawer({ roomID }: { roomID: RoomID }) {
         </span>
       </div>
       <MemberList roomID={roomID} />
-    </motion.aside>
+    </>
   )
 }

@@ -5,6 +5,7 @@ import type { EventRowID, RoomID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { loadOlder, markRoomRead, useChat } from '@/store/chat'
 import { isMessageLike, isPendingEvent, isRenderable, type TimelineEvent } from '@/store/events'
+import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
 import { TimelineRow } from './TimelineRow'
 
@@ -58,6 +59,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   const timelineLength = useChat(s => s.rooms[roomID]?.timeline.length ?? 0)
   const hasMore = useChat(s => s.rooms[roomID]?.hasMore ?? false)
   const paginating = useChat(s => s.rooms[roomID]?.paginating ?? false)
+  const highlight = useUI(s => s.highlight)
 
   // sender/timestamp/type-class never change for an event, so grouping only depends on the row list.
   const items = useMemo<Item[]>(() => {
@@ -121,6 +123,16 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       if (measurement) el.scrollTop = measurement.start - offset
     }
   }, [items, totalSize, virtualizer])
+
+  // Jump to a message (e.g. from a reply preview); the row highlights itself.
+  useEffect(() => {
+    if (!highlight) return
+    const index = items.findIndex(item => item.rowid === highlight.rowid)
+    if (index < 0) return
+    atBottom.current = false
+    virtualizer.scrollToIndex(index, { align: 'center' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlight])
 
   useEffect(() => {
     if (atBottom.current) markLatestRead(roomID, rowids)
