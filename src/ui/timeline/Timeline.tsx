@@ -8,13 +8,13 @@ import { loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
 import { isMessageLike, isPendingEvent, isRenderable, type TimelineEvent } from '@/store/events'
 import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
-import { TimelineRow } from './TimelineRow'
+import { ENTER_ANIMATION_WINDOW, TimelineRow } from './TimelineRow'
 
 const GROUP_WINDOW = 5 * 60_000
 const LOAD_THRESHOLD = 800
 const BOTTOM_THRESHOLD = 48
 const NO_ROWS: EventRowID[] = []
-// Separators for the receipt layout signature; can't appear in user IDs.
+// Separators for the receipt layout signature; control characters can't appear in user IDs.
 const ROW_SEPARATOR = '\u0001'
 const USER_SEPARATOR = '\u0002'
 const FIELD_SEPARATOR = '\u0003'
@@ -45,6 +45,32 @@ function useVisibleRowIDs(roomID: RoomID) {
       return rowids
     }),
   )
+}
+
+/**
+ * When each row newly arrived at the bottom while the room was open, so it can animate in.
+ * The first render of a room, history loaded above, and timeline resets never count as new.
+ */
+function useArrivals(items: Item[]): Map<EventRowID, number> {
+  const known = useRef<Set<EventRowID> | null>(null)
+  const arrivals = useRef(new Map<EventRowID, number>())
+  return useMemo(() => {
+    const now = Date.now()
+    if (!known.current) {
+      if (items.length) known.current = new Set(items.map(item => item.rowid))
+      return arrivals.current
+    }
+    for (const [rowid, at] of arrivals.current) {
+      if (now - at > ENTER_ANIMATION_WINDOW * 4) arrivals.current.delete(rowid)
+    }
+    const fresh: EventRowID[] = []
+    let i = items.length - 1
+    while (i >= 0 && !known.current.has(items[i].rowid)) fresh.push(items[i--].rowid)
+    for (const item of items) known.current.add(item.rowid)
+    // i < 0 means every row is unknown (e.g. the timeline was reset): don't animate a whole screen.
+    if (i >= 0) for (const rowid of fresh) if (!arrivals.current.has(rowid)) arrivals.current.set(rowid, now)
+    return new Map(arrivals.current)
+  }, [items])
 }
 
 /**
@@ -137,6 +163,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       return { rowid, compact, newDay }
     })
   }, [rowids])
+  const arrivals = useArrivals(items)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
@@ -242,6 +269,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
                     compact={item.compact}
                     newDay={item.newDay}
                     readers={receiptLayout.get(item.rowid)}
+                    arrivedAt={arrivals.get(item.rowid)}
                   />
                 </div>
               )

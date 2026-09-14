@@ -1,4 +1,5 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
+import { MotionConfig } from 'motion/react'
 import { useSession } from '@/store/session'
 import { BackendScreen } from '@/ui/BackendScreen'
 import { Shell } from '@/ui/layout/Shell'
@@ -8,12 +9,15 @@ export function App() {
   const phase = useSession(s => s.phase)
   const error = useSession(s => s.error)
   return (
-    <Tooltip.Provider delayDuration={400}>
-      {phase === 'checking' && <Splash />}
-      {phase === 'backend' && <BackendScreen />}
-      {phase === 'login' && <LoginScreen />}
-      {phase === 'error' && <ErrorScreen error={error} />}
-      {phase === 'ready' && <Shell />}
-    </Tooltip.Provider>
+    // Animations follow the system's reduced-motion setting.
+    <MotionConfig reducedMotion="user">
+      <Tooltip.Provider delayDuration={400}>
+        {phase === 'checking' && <Splash />}
+        {phase === 'backend' && <BackendScreen />}
+        {phase === 'login' && <LoginScreen />}
+        {phase === 'error' && <ErrorScreen error={error} />}
+        {phase === 'ready' && <Shell />}
+      </Tooltip.Provider>
+    </MotionConfig>
   )
 }

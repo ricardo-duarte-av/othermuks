@@ -54,7 +54,7 @@ interface UIState {
   composerScope: EventID | null
   /** Message being jumped to; nonce distinguishes repeated jumps to the same message. */
   highlight: { rowid: EventRowID; nonce: number } | null
-  lightbox: { url: string; name?: string } | null
+  lightbox: LightboxImage | null
   dialog: MessageDialog | null
   toast: { id: number; message: string } | null
 }
@@ -120,8 +120,17 @@ export function openProfile(userID: UserID) {
   useUI.setState({ profileUserID: userID })
 }
 
-export function openLightbox(url: string, name?: string) {
-  useUI.setState({ lightbox: { url, name } })
+export interface LightboxImage {
+  url: string
+  name?: string
+  /** Blurhash placeholder (data: URL) plus the image's size, shown until the full image loads. */
+  placeholder?: string
+  width?: number
+  height?: number
+}
+
+export function openLightbox(url: string, name?: string, extra: Omit<LightboxImage, 'url' | 'name'> = {}) {
+  useUI.setState({ lightbox: { url, name, ...extra } })
 }
 
 export function setActiveSpace(spaceID: string) {

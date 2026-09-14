@@ -2,7 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { Download, ExternalLink, RotateCcw, RotateCw, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
-import { showToast, useUI } from '@/store/ui'
+import { showToast, useUI, type LightboxImage } from '@/store/ui'
 import { Spinner } from './primitives'
 
 const EXTENSIONS: Record<string, string> = {
@@ -13,6 +13,10 @@ const EXTENSIONS: Record<string, string> = {
   'image/avif': 'avif',
   'image/svg+xml': 'svg',
 }
+
+// Space the image may use: viewport minus the toolbar and padding.
+const HORIZONTAL_MARGIN = 32
+const VERTICAL_MARGIN = 112
 
 /** Downloads through a blob, since <a download> is ignored for cross-origin (remote backend) URLs. */
 async function saveImage(url: string, name?: string) {
@@ -50,7 +54,7 @@ function ToolbarButton({ label, onClick, children }: { label: string; onClick: (
   )
 }
 
-/** Full-screen image viewer. Open it with openLightbox(url, name). */
+/** Full-screen image viewer. Open it with openLightbox(url, name, { placeholder, width, height }). */
 export function Lightbox() {
   const lightbox = useUI(s => s.lightbox)
   return (
@@ -61,20 +65,30 @@ export function Lightbox() {
           aria-describedby={undefined}
           className="lightbox fixed inset-0 z-[61] flex animate-[lightbox-in_150ms_ease-out] flex-col outline-none"
         >
-          {lightbox && <LightboxView key={lightbox.url} url={lightbox.url} name={lightbox.name} />}
+          {lightbox && <LightboxView key={lightbox.url} {...lightbox} />}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   )
 }
 
-function LightboxView({ url, name }: { url: string; name?: string }) {
+/** Size of the placeholder so it matches where the loaded image will appear. */
+function placeholderSize(width: number | undefined, height: number | undefined, sideways: boolean) {
+  if (!width || !height) return undefined
+  const maxWidth = (sideways ? window.innerHeight - VERTICAL_MARGIN : window.innerWidth - HORIZONTAL_MARGIN)
+  const maxHeight = (sideways ? window.innerWidth - HORIZONTAL_MARGIN : window.innerHeight - VERTICAL_MARGIN)
+  const scale = Math.min(1, maxWidth / width, maxHeight / height)
+  return { width: Math.round(width * scale), height: Math.round(height * scale) }
+}
+
+function LightboxView({ url, name, placeholder, width, height }: LightboxImage) {
   const [rotation, setRotation] = useState(0)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const close = () => useUI.setState({ lightbox: null })
   const rotate = (delta: number) => setRotation(r => r + delta)
   const quarter = ((rotation % 360) + 360) % 360
   const sideways = quarter === 90 || quarter === 270
+  const placeholderBox = placeholder && status === 'loading' ? placeholderSize(width, height, sideways) : undefined
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -111,6 +125,15 @@ function LightboxView({ url, name }: { url: string; name?: string }) {
           if (e.target === e.currentTarget) close()
         }}
       >
+        {placeholderBox && (
+          <img
+            src={placeholder}
+            alt=""
+            aria-hidden
+            className="pointer-events-none absolute inset-0 m-auto transition-transform duration-200 ease-out"
+            style={{ ...placeholderBox, transform: `rotate(${rotation}deg)` }}
+          />
+        )}
         {status === 'loading' && <Spinner size={28} className="absolute text-white/70" />}
         {status === 'error' ? (
           <p className="text-sm text-white/80">Couldn't load this image.</p>
@@ -122,14 +145,14 @@ function LightboxView({ url, name }: { url: string; name?: string }) {
             onLoad={() => setStatus('loaded')}
             onError={() => setStatus('error')}
             className={cn(
-              'select-none object-contain shadow-2xl transition-[transform,opacity] duration-200 ease-out',
+              'relative select-none object-contain shadow-2xl transition-[transform,opacity] duration-300 ease-out',
               status === 'loaded' ? 'opacity-100' : 'opacity-0',
             )}
             style={{
               transform: `rotate(${rotation}deg)`,
               // A sideways image swaps which viewport dimension limits it.
-              maxWidth: sideways ? 'calc(100vh - 7rem)' : 'calc(100vw - 2rem)',
-              maxHeight: sideways ? 'calc(100vw - 2rem)' : 'calc(100vh - 7rem)',
+              maxWidth: sideways ? `calc(100vh - ${VERTICAL_MARGIN}px)` : `calc(100vw - ${HORIZONTAL_MARGIN}px)`,
+              maxHeight: sideways ? `calc(100vw - ${HORIZONTAL_MARGIN}px)` : `calc(100vh - ${VERTICAL_MARGIN}px)`,
             }}
           />
         )}

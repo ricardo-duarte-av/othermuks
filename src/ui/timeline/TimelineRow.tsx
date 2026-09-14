@@ -16,7 +16,8 @@ import {
   Undo2,
   Users,
 } from 'lucide-react'
-import { memo, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react'
+import { motion } from 'motion/react'
+import { memo, useEffect, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { client } from '@/api/client'
 import { mediaURL, userColorIndex } from '@/api/media'
@@ -38,6 +39,7 @@ import { useMember } from '@/store/hooks'
 import { jumpToEvent } from '@/store/navigation'
 import { loadReactionDetails, reactionSignature, useReactionDetails, type Reactor } from '@/store/reactions'
 import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
+import { blurhashDataURL, blurhashOf } from '@/ui/blurhash'
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
@@ -45,6 +47,9 @@ import { ReadReceipts } from './ReadReceipts'
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂']
 const EDITABLE_MSGTYPES = new Set(['m.text', 'm.emote', 'm.notice'])
+
+/** A row mounting within this long after it arrived animates in; later remounts (scrolling) don't. */
+export const ENTER_ANIMATION_WINDOW = 1500
 
 interface RowProps {
   roomID: RoomID
@@ -55,17 +60,28 @@ interface RowProps {
   threadRoot?: EventID
   /** Other users whose read receipt is on this row (main timeline only). */
   readers?: UserID[]
+  /** When the row arrived while the room was open (ms timestamp), for the entrance animation. */
+  arrivedAt?: number
 }
 
-export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot, readers }: RowProps) {
+export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot, readers, arrivedAt }: RowProps) {
   const evt = useChat(s => s.events[rowid])
   const ownUserID = useChat(selectOwnUserID)
   if (!evt) return null
+  const own = evt.sender === ownUserID
+  const entering = arrivedAt !== undefined && Date.now() - arrivedAt < ENTER_ANIMATION_WINDOW
+
   return (
-    <>
+    <motion.div
+      // New messages rise into place (own ones grow from the right, others from the left) instead of popping in.
+      initial={entering ? { opacity: 0, y: 16, scale: 0.97, filter: 'blur(4px)' } : false}
+      animate={entering ? { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', transitionEnd: { filter: 'none' } } : undefined}
+      transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.7 }}
+      style={{ transformOrigin: own ? '100% 100%' : '0% 100%' }}
+    >
       {newDay && <DaySeparator ts={evt.timestamp} />}
       {isMessageLike(evt) ? (
-        <MessageRow roomID={roomID} evt={evt} compact={compact} own={evt.sender === ownUserID} threadRoot={threadRoot} />
+        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} threadRoot={threadRoot} />
       ) : (
         <StateRow roomID={roomID} evt={evt} />
       )}
@@ -74,7 +90,7 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
           <ReadReceipts roomID={roomID} readers={readers} />
         </div>
       )}
-    </>
+    </motion.div>
   )
 })
 
@@ -362,18 +378,51 @@ function mediaSources(content: MessageEventContent) {
   return { url, thumbnail, inline }
 }
 
+/** URLs that have finished loading once, so remounted rows (scrolling back) don't fade them in again. */
+const loadedImages = new Set<string>()
+
+/** An image that fades in over its blurhash placeholder once loaded. */
+function FadeInImage({ src, alt, placeholder }: { src: string; alt: string; placeholder?: string }) {
+  const [loaded, setLoaded] = useState(() => loadedImages.has(src))
+  const [failed, setFailed] = useState(false)
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onLoad={() => {
+        loadedImages.add(src)
+        setLoaded(true)
+      }}
+      onError={() => setFailed(true)}
+      className={cn(
+        'size-full object-cover transition-opacity duration-300 ease-out',
+        // Without a placeholder there's nothing to fade from, so show the image as it loads.
+        loaded || !placeholder || failed ? 'opacity-100' : 'opacity-0',
+      )}
+    />
+  )
+}
+
+const placeholderStyle = (placeholder: string | undefined): CSSProperties | undefined =>
+  placeholder ? { backgroundImage: `url(${placeholder})`, backgroundSize: '100% 100%' } : undefined
+
 function MediaContent({ content, msgtype }: { content: MessageEventContent; msgtype: string }) {
   const { url, thumbnail, inline } = mediaSources(content)
   const info = content.info ?? {}
   if (!url) return <p className="text-sm italic text-muted">Invalid media</p>
 
+  const placeholder = blurhashDataURL(blurhashOf(info))
   const isSticker = msgtype === 'm.sticker'
   const size = fitSize(info.w, info.h, isSticker ? 180 : 420, isSticker ? 180 : 340)
   const boxStyle = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined
+  const name = content.filename ?? content.body
 
   switch (msgtype) {
     case 'm.image':
-    case 'm.sticker':
+    case 'm.sticker': {
+      const src = isSticker ? url : (inline ?? url)
       return (
         <a
           href={url}
@@ -383,17 +432,18 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
             // Plain clicks open the lightbox; middle/modifier clicks keep opening a new tab.
             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
             e.preventDefault()
-            openLightbox(url, content.filename ?? content.body)
+            openLightbox(url, name, { placeholder, width: info.w, height: info.h })
           }}
           className={cn(
             'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
             !isSticker && 'border border-border bg-surface',
           )}
-          style={boxStyle ?? { maxWidth: 420 }}
+          style={{ ...(boxStyle ?? { maxWidth: 420 }), ...placeholderStyle(placeholder) }}
         >
-          <img src={isSticker ? url : inline} alt={content.body} loading="lazy" decoding="async" className="size-full object-cover" />
+          <FadeInImage key={src} src={src} alt={content.body} placeholder={placeholder} />
         </a>
       )
+    }
     case 'm.video':
       return (
         <video
@@ -401,8 +451,8 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
           poster={thumbnail}
           controls
           preload="none"
-          className="media-video mt-1 max-w-full rounded-lg bg-black"
-          style={boxStyle ?? { width: 420 }}
+          className={cn('media-video mt-1 max-w-full rounded-lg', !placeholder && 'bg-black')}
+          style={{ ...(boxStyle ?? { width: 420 }), ...placeholderStyle(placeholder) }}
         />
       )
     case 'm.audio':
@@ -411,12 +461,12 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
       return (
         <a
           href={url}
-          download={content.filename ?? content.body}
+          download={name}
           className="media-file mt-1 flex w-fit max-w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 transition-colors hover:bg-hover"
         >
           <FileText size={22} className="shrink-0 text-accent" />
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{content.filename ?? content.body}</span>
+            <span className="block truncate text-sm font-medium">{name}</span>
             <span className="block text-xs text-muted">{[formatBytes(info.size), info.mimetype].filter(Boolean).join(' · ')}</span>
           </span>
         </a>
