@@ -153,7 +153,7 @@ class EventTables {
 }
 
 /** Adds events to the tables without touching rooms. */
-function storeEvents(raws: RawDBEvent[]) {
+export function storeEvents(raws: RawDBEvent[]) {
   const tables = new EventTables(get())
   tables.add(raws)
   set(tables.patch)

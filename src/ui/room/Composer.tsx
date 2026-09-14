@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
 import { displayContent } from '@/store/events'
 import { useDisplayName } from '@/store/hooks'
+import { closeEventContext, useEventContext } from '@/store/navigation'
 import { useUI } from '@/store/ui'
 import { IconButton, Spinner } from '@/ui/primitives'
 
@@ -81,6 +82,8 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     setError(null)
     if (replyTo || editing) useUI.setState({ replyTo: null, editing: null })
     stopTyping()
+    // Sending from the room composer returns to the present if an older context view is open.
+    if (!threadRoot && useEventContext.getState().view?.roomID === roomID) closeEventContext()
     try {
       await sendText(roomID, body, opts)
     } catch (err) {

@@ -4,9 +4,9 @@
 // in a new tab, and literal newlines kept as line breaks.
 import DOMPurify from 'dompurify'
 import { gomuksMediaURL, isGomuksMediaURL, mediaURL } from '@/api/media'
+import { parseMatrixURI } from '@/lib/matrixURI'
 
 const purify = DOMPurify(window)
-const MATRIX_TO = /^https:\/\/matrix\.to\/#\/[@!#]/
 const RELATIVE_GOMUKS_MEDIA = /^\/?_gomuks\/(media\/.+)$/
 
 purify.addHook('uponSanitizeElement', (node, data) => {
@@ -21,7 +21,9 @@ purify.addHook('uponSanitizeAttribute', (_node, data) => {
 
 purify.addHook('afterSanitizeAttributes', node => {
   if (node.tagName === 'A') {
-    if (MATRIX_TO.test(node.getAttribute('href') ?? '')) node.classList.add('mention-pill')
+    // Links to a user or a room render as pills; links to a specific message stay regular links.
+    const target = parseMatrixURI(node.getAttribute('href') ?? '')
+    if (target && (target.kind === 'user' || !target.eventID)) node.classList.add('mention-pill')
     node.setAttribute('target', '_blank')
     node.setAttribute('rel', 'noopener noreferrer')
   } else if (node.tagName === 'IMG') {

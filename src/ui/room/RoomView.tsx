@@ -7,8 +7,10 @@ import { formatNames } from '@/lib/format'
 import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/chat'
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
+import { closeEventContext, useEventContext } from '@/store/navigation'
 import { useUI } from '@/store/ui'
 import { Avatar, IconButton } from '@/ui/primitives'
+import { ContextTimeline } from '@/ui/timeline/ContextTimeline'
 import { Timeline } from '@/ui/timeline/Timeline'
 import { Composer } from './Composer'
 
@@ -116,9 +118,13 @@ function TypingIndicator({ roomID }: { roomID: RoomID }) {
 export function RoomView({ roomID }: { roomID: RoomID }) {
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
+  const showContext = useEventContext(s => s.view?.roomID === roomID)
 
   useEffect(() => {
     void loadRoomState(roomID)
+    // A context view left open for another room shouldn't come back later.
+    const view = useEventContext.getState().view
+    if (view && view.roomID !== roomID) closeEventContext()
   }, [roomID])
 
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
@@ -148,7 +154,10 @@ export function RoomView({ roomID }: { roomID: RoomID }) {
       }}
     >
       <RoomHeader roomID={roomID} />
-      <Timeline roomID={roomID} />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <Timeline roomID={roomID} />
+        <AnimatePresence>{showContext && <ContextTimeline key="event-context" roomID={roomID} />}</AnimatePresence>
+      </div>
       <TypingIndicator roomID={roomID} />
       <Composer roomID={roomID} />
       <AnimatePresence>

@@ -248,6 +248,15 @@ export interface GetProfileResponse {
   bio?: { html: string; edit_source?: string }
 }
 
+/** get_event_context: `before` is newest-first, `after` oldest-first (Matrix /context semantics). */
+export interface EventContextResponse {
+  start: string
+  end: string
+  before: RawDBEvent[]
+  after: RawDBEvent[]
+  event: RawDBEvent
+}
+
 export interface ManualPaginationResponse {
   events: RawDBEvent[]
   next_batch?: string

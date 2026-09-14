@@ -80,9 +80,62 @@ function CopyJSONButton({ value }: { value: unknown }) {
   )
 }
 
-function JSONBlock({ value }: { value: unknown }) {
+const WRAP_STORAGE_KEY = 'othermuks-json-wrap'
+
+/** Whether JSON views wrap long lines; remembered on this device. */
+function useJSONWrap(): [boolean, (wrap: boolean) => void] {
+  const [wrap, setWrap] = useState(() => {
+    try {
+      return localStorage.getItem(WRAP_STORAGE_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const update = (next: boolean) => {
+    setWrap(next)
+    try {
+      localStorage.setItem(WRAP_STORAGE_KEY, next ? '1' : '0')
+    } catch {
+      // Storage unavailable: the choice just isn't remembered.
+    }
+  }
+  return [wrap, update]
+}
+
+function WrapSwitch({ wrap, onChange }: { wrap: boolean; onChange: (wrap: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={wrap}
+      onClick={() => onChange(!wrap)}
+      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
+    >
+      <span className={cn('relative h-4 w-7 shrink-0 rounded-full transition-colors', wrap ? 'bg-accent' : 'bg-surface-2 ring-1 ring-border')}>
+        <span
+          className={cn(
+            'absolute top-0.5 size-3 rounded-full bg-white shadow transition-transform',
+            wrap ? 'translate-x-3.5' : 'translate-x-0.5',
+          )}
+        />
+      </span>
+      Wrap lines
+    </button>
+  )
+}
+
+function JSONBlock({ value, wrap }: { value: unknown; wrap: boolean }) {
   const text = useMemo(() => JSON.stringify(value, null, 2), [value])
-  return <pre className="overflow-auto rounded-lg border border-border bg-[var(--code-bg)] p-3 font-mono text-xs leading-relaxed">{text}</pre>
+  return (
+    <pre
+      className={cn(
+        'overflow-auto rounded-lg border border-border bg-[var(--code-bg)] p-3 font-mono text-xs leading-relaxed',
+        wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
+      )}
+    >
+      {text}
+    </pre>
+  )
 }
 
 /** Renders message content (formatted text, or a short label for media) without the timeline chrome. */
@@ -105,14 +158,23 @@ function ContentPreview({ content, localContent }: { content: MessageEventConten
 
 function SourceView({ evt }: { evt: TimelineEvent }) {
   const source = useMemo(() => originalEvent(evt), [evt])
+  const [wrap, setWrap] = useJSONWrap()
   return (
     <>
-      <DialogHeader title="Event source" actions={<CopyJSONButton value={source} />} />
+      <DialogHeader
+        title="Event source"
+        actions={
+          <>
+            <WrapSwitch wrap={wrap} onChange={setWrap} />
+            <CopyJSONButton value={source} />
+          </>
+        }
+      />
       <div className="flex min-h-0 flex-col gap-2 overflow-auto p-4">
         <p className="text-xs text-muted">
           The event as delivered by gomuks{evt.original ? ', with the decrypted content in decrypted and decrypted_type' : ''}.
         </p>
-        <JSONBlock value={source} />
+        <JSONBlock value={source} wrap={wrap} />
       </div>
     </>
   )
@@ -122,6 +184,7 @@ type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } 
 
 function OriginalView({ evt }: { evt: TimelineEvent }) {
   const [state, setState] = useState<Loadable<TimelineEvent>>({ status: 'loading' })
+  const [wrap, setWrap] = useJSONWrap()
 
   useEffect(() => {
     let cancelled = false
@@ -136,7 +199,17 @@ function OriginalView({ evt }: { evt: TimelineEvent }) {
 
   return (
     <>
-      <DialogHeader title="Original message" actions={state.status === 'ok' && <CopyJSONButton value={originalEvent(state.value)} />} />
+      <DialogHeader
+        title="Original message"
+        actions={
+          state.status === 'ok' && (
+            <>
+              <WrapSwitch wrap={wrap} onChange={setWrap} />
+              <CopyJSONButton value={originalEvent(state.value)} />
+            </>
+          )
+        }
+      />
       <div className="flex min-h-0 flex-col gap-3 overflow-auto p-4">
         {state.status === 'loading' && (
           <div className="flex justify-center py-8 text-muted">
@@ -161,7 +234,7 @@ function OriginalView({ evt }: { evt: TimelineEvent }) {
             <details>
               <summary className="cursor-pointer text-xs font-medium text-muted hover:text-fg">Event JSON</summary>
               <div className="mt-2">
-                <JSONBlock value={originalEvent(state.value)} />
+                <JSONBlock value={originalEvent(state.value)} wrap={wrap} />
               </div>
             </details>
           </>

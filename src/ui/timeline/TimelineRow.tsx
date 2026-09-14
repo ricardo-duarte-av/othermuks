@@ -23,6 +23,7 @@ import { client } from '@/api/client'
 import { mediaURL, userColorIndex } from '@/api/media'
 import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
+import { parseMatrixURI } from '@/lib/matrixURI'
 import { formatBytes, formatDay, formatFull, formatNames, formatTime } from '@/lib/format'
 import { fetchEvent, selectOwnUserID, useChat } from '@/store/chat'
 import {
@@ -36,7 +37,7 @@ import {
   type TimelineEvent,
 } from '@/store/events'
 import { useMember } from '@/store/hooks'
-import { jumpToEvent } from '@/store/navigation'
+import { jumpToEvent, openMatrixTarget } from '@/store/navigation'
 import { loadReactionDetails, reactionSignature, useReactionDetails, type Reactor } from '@/store/reactions'
 import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
 import { blurhashDataURL, blurhashOf } from '@/ui/blurhash'
@@ -334,9 +335,24 @@ interface TextBodyProps extends Omit<ContentProps, 'evt'> {
   allowBigEmoji?: boolean
 }
 
-/** Opens images embedded in formatted messages (not custom emoji) in the lightbox. */
-function openEmbeddedImage(e: MouseEvent<HTMLElement>) {
+/**
+ * Clicks inside formatted message text: matrix.to and matrix: links are followed inside the client,
+ * and embedded images (not custom emoji) open in the lightbox.
+ */
+function handleMessageBodyClick(e: MouseEvent<HTMLElement>) {
   const target = e.target as HTMLElement
+  const link = target.closest('a')
+  if (link) {
+    const href = link.getAttribute('href') ?? ''
+    const matrixTarget = parseMatrixURI(href)
+    // Modified clicks on https matrix.to links keep the browser default (e.g. open in a new tab).
+    const modified = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey
+    if (!matrixTarget || (modified && !href.toLowerCase().startsWith('matrix:'))) return
+    e.preventDefault()
+    e.stopPropagation()
+    void openMatrixTarget(matrixTarget)
+    return
+  }
   if (target.tagName !== 'IMG' || target.hasAttribute('data-mx-emoticon')) return
   const src = (target as HTMLImageElement).currentSrc || target.getAttribute('src')
   if (!src) return
@@ -351,7 +367,7 @@ function TextBody({ content, localContent, msgtype, senderName, className, allow
     <div
       className={cn('message-body text-[15px]', msgtype === 'm.notice' && 'text-muted', className)}
       data-big-emoji={(allowBigEmoji && localContent?.big_emoji) || undefined}
-      onClick={html ? openEmbeddedImage : undefined}
+      onClick={html ? handleMessageBodyClick : undefined}
     >
       {msgtype === 'm.emote' && <span className="font-medium">* {senderName} </span>}
       {html ? (

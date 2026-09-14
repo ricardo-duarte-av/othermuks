@@ -6,6 +6,7 @@ import { basicAuthHeader, type BackendConfig } from './backend'
 import { setImageAuthToken, setMediaBackend } from './media'
 import { createSSEParser } from './sse'
 import type {
+  EventContextResponse,
   EventID,
   MessageEventContent,
   PaginationResponse,
@@ -440,6 +441,15 @@ export class GomuksClient {
 
   leaveRoom(room_id: RoomID, reason?: string) {
     return this.exec<Record<string, never>>('leave_room', { room_id, reason })
+  }
+
+  /** Messages around an event, for showing a linked message that isn't in the loaded timeline. */
+  getEventContext(room_id: RoomID, event_id: EventID, limit = 20) {
+    return this.exec<EventContextResponse>('get_event_context', { room_id, event_id, limit })
+  }
+
+  resolveAlias(alias: string) {
+    return this.exec<{ room_id: RoomID; servers: string[] }>('resolve_alias', { alias })
   }
 }
 
