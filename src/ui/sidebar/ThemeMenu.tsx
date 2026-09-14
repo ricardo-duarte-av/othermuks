@@ -1,9 +1,10 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Check, Palette } from 'lucide-react'
+import { Check, Palette, SlidersHorizontal } from 'lucide-react'
 import { setTheme, THEMES, useUI, type ThemeID } from '@/store/ui'
 
 export function ThemeMenu() {
   const theme = useUI(s => s.theme)
+  const customized = useUI(s => Object.keys(s.themeOverrides).length > 0 || !!s.customCSS)
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
@@ -18,7 +19,7 @@ export function ThemeMenu() {
           side="right"
           align="end"
           sideOffset={10}
-          className="theme-menu z-50 min-w-52 rounded-lg border border-border bg-surface p-1 text-fg shadow-xl"
+          className="theme-menu z-50 min-w-56 rounded-lg border border-border bg-surface p-1 text-fg shadow-xl"
         >
           <DropdownMenu.Label className="px-2 py-1.5 text-xs text-muted">Theme</DropdownMenu.Label>
           <DropdownMenu.RadioGroup value={theme} onValueChange={value => setTheme(value as ThemeID)}>
@@ -40,6 +41,15 @@ export function ThemeMenu() {
               </DropdownMenu.RadioItem>
             ))}
           </DropdownMenu.RadioGroup>
+          <DropdownMenu.Separator className="my-1 h-px bg-border" />
+          <DropdownMenu.Item
+            onSelect={() => requestAnimationFrame(() => useUI.setState({ appearanceOpen: true }))}
+            className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-hover"
+          >
+            <SlidersHorizontal size={15} className="text-muted" />
+            Customize appearance…
+            {customized && <span className="ml-auto size-1.5 rounded-full bg-accent" title="Customized" />}
+          </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

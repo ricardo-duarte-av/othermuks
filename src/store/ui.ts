@@ -29,6 +29,10 @@ export interface MessageDialog {
 
 interface UIState {
   theme: ThemeID
+  /** CSS custom property values (without the leading --) layered over the base theme. */
+  themeOverrides: Record<string, string>
+  customCSS: string
+  appearanceOpen: boolean
   activeSpaceID: string
   railExpanded: boolean
   activeRoomID: RoomID | null
@@ -46,6 +50,7 @@ interface UIState {
   composerScope: EventID | null
   /** Message being jumped to; nonce distinguishes repeated jumps to the same message. */
   highlight: { rowid: EventRowID; nonce: number } | null
+  lightbox: { url: string; name?: string } | null
   dialog: MessageDialog | null
   toast: { id: number; message: string } | null
 }
@@ -54,6 +59,9 @@ export const useUI = create<UIState>()(
   persist(
     (): UIState => ({
       theme: 'midnight',
+      themeOverrides: {},
+      customCSS: '',
+      appearanceOpen: false,
       activeSpaceID: HOME_SPACE,
       railExpanded: false,
       activeRoomID: null,
@@ -67,6 +75,7 @@ export const useUI = create<UIState>()(
       editing: null,
       composerScope: null,
       highlight: null,
+      lightbox: null,
       dialog: null,
       toast: null,
     }),
@@ -74,6 +83,8 @@ export const useUI = create<UIState>()(
       name: 'othermuks-ui',
       partialize: s => ({
         theme: s.theme,
+        themeOverrides: s.themeOverrides,
+        customCSS: s.customCSS,
         activeSpaceID: s.activeSpaceID,
         railExpanded: s.railExpanded,
         activeRoomID: s.activeRoomID,
@@ -105,6 +116,10 @@ export function openProfile(userID: UserID) {
   useUI.setState({ profileUserID: userID })
 }
 
+export function openLightbox(url: string, name?: string) {
+  useUI.setState({ lightbox: { url, name } })
+}
+
 export function setActiveSpace(spaceID: string) {
   useUI.setState({ activeSpaceID: spaceID })
 }
@@ -123,6 +138,24 @@ export function setTheme(theme: ThemeID) {
   useUI.setState({ theme })
 }
 
+/** Sets (or with null, removes) a theme token override, e.g. setThemeOverride('accent', '#ff00aa'). */
+export function setThemeOverride(token: string, value: string | null) {
+  useUI.setState(s => {
+    const themeOverrides = { ...s.themeOverrides }
+    if (value) themeOverrides[token] = value
+    else delete themeOverrides[token]
+    return { themeOverrides }
+  })
+}
+
+export function resetThemeOverrides() {
+  useUI.setState({ themeOverrides: {} })
+}
+
+export function setCustomCSS(customCSS: string) {
+  useUI.setState({ customCSS })
+}
+
 let toastID = 0
 
 export function showToast(message: string) {
@@ -138,12 +171,45 @@ export function codeblockStyleFor(theme: ThemeID): string {
   return THEMES.find(t => t.id === theme)?.codeblock ?? 'github-dark'
 }
 
-export function setCodeblockCSS(css: string) {
-  let style = document.getElementById('codeblock-theme') as HTMLStyleElement | null
+const THEME_OVERRIDES_ID = 'othermuks-theme-overrides'
+const CUSTOM_CSS_ID = 'othermuks-custom-css'
+
+function setStyleElement(id: string, css: string) {
+  let style = document.getElementById(id) as HTMLStyleElement | null
+  if (!css) {
+    style?.remove()
+    return
+  }
   if (!style) {
     style = document.createElement('style')
-    style.id = 'codeblock-theme'
+    style.id = id
     document.head.append(style)
   }
   style.textContent = css
 }
+
+/** User CSS must come after every other stylesheet so it wins. */
+function keepCustomCSSLast() {
+  const custom = document.getElementById(CUSTOM_CSS_ID)
+  if (custom && custom !== document.head.lastElementChild) document.head.append(custom)
+}
+
+export function setCodeblockCSS(css: string) {
+  setStyleElement('codeblock-theme', css)
+  keepCustomCSSLast()
+}
+
+function applyUserStyles({ themeOverrides, customCSS }: Pick<UIState, 'themeOverrides' | 'customCSS'>) {
+  const declarations = Object.entries(themeOverrides)
+    .map(([token, value]) => `  --${token}: ${value};`)
+    .join('\n')
+  // :root:root outranks the [data-theme] palettes without !important.
+  setStyleElement(THEME_OVERRIDES_ID, declarations ? `:root:root {\n${declarations}\n}` : '')
+  setStyleElement(CUSTOM_CSS_ID, customCSS)
+  keepCustomCSSLast()
+}
+
+applyUserStyles(useUI.getState())
+useUI.subscribe((state, prev) => {
+  if (state.themeOverrides !== prev.themeOverrides || state.customCSS !== prev.customCSS) applyUserStyles(state)
+})

@@ -72,6 +72,17 @@ export function CommandPalette() {
               <PanelRight size={16} className="text-muted" /> Toggle room details
             </Command.Item>
           )}
+          <Command.Item
+            value="customize-appearance"
+            keywords={['appearance', 'theme editor', 'colors', 'custom css', 'style']}
+            onSelect={() => {
+              close()
+              requestAnimationFrame(() => useUI.setState({ appearanceOpen: true }))
+            }}
+            className={itemClass}
+          >
+            <Palette size={16} className="text-muted" /> Customize appearance…
+          </Command.Item>
           {THEMES.map(theme => (
             <Command.Item
               key={theme.id}

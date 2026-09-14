@@ -12,7 +12,7 @@ import {
   SmilePlus,
   Trash2,
 } from 'lucide-react'
-import { memo, useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { memo, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react'
 import { client } from '@/api/client'
 import { mediaURL, userColorIndex } from '@/api/media'
 import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID, UserID } from '@/api/types'
@@ -30,7 +30,7 @@ import {
 } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { jumpToEvent } from '@/store/navigation'
-import { openProfile, openThread, showToast, useUI } from '@/store/ui'
+import { openLightbox, openProfile, openThread, showToast, useUI } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
@@ -229,12 +229,24 @@ interface TextBodyProps extends Omit<ContentProps, 'evt'> {
   allowBigEmoji?: boolean
 }
 
+/** Opens images embedded in formatted messages (not custom emoji) in the lightbox. */
+function openEmbeddedImage(e: MouseEvent<HTMLElement>) {
+  const target = e.target as HTMLElement
+  if (target.tagName !== 'IMG' || target.hasAttribute('data-mx-emoticon')) return
+  const src = (target as HTMLImageElement).currentSrc || target.getAttribute('src')
+  if (!src) return
+  e.preventDefault()
+  e.stopPropagation()
+  openLightbox(src, target.getAttribute('alt') || target.getAttribute('title') || undefined)
+}
+
 function TextBody({ content, localContent, msgtype, senderName, className, allowBigEmoji = true }: TextBodyProps) {
   const html = localContent?.sanitized_html
   return (
     <div
       className={cn('message-body text-[15px]', msgtype === 'm.notice' && 'text-muted', className)}
       data-big-emoji={(allowBigEmoji && localContent?.big_emoji) || undefined}
+      onClick={html ? openEmbeddedImage : undefined}
     >
       {msgtype === 'm.emote' && <span className="font-medium">* {senderName} </span>}
       {html ? (
@@ -278,7 +290,16 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className={cn('media-image mt-1 block max-w-full overflow-hidden rounded-lg', !isSticker && 'border border-border bg-surface')}
+          onClick={e => {
+            // Plain clicks open the lightbox; middle/modifier clicks keep opening a new tab.
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
+            e.preventDefault()
+            openLightbox(url, content.filename ?? content.body)
+          }}
+          className={cn(
+            'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
+            !isSticker && 'border border-border bg-surface',
+          )}
           style={boxStyle ?? { maxWidth: 420 }}
         >
           <img src={isSticker ? url : inline} alt={content.body} loading="lazy" decoding="async" className="size-full object-cover" />

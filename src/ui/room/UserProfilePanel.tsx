@@ -1,11 +1,12 @@
-import { Clock, Copy, X } from 'lucide-react'
+import { Clock, Copy, Shield, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { mediaURL, userColorIndex } from '@/api/media'
 import type { RoomID, UserID } from '@/api/types'
 import { fallbackDisplayName } from '@/store/events'
-import { useMember } from '@/store/hooks'
+import { useMember, useRoomPowerContext } from '@/store/hooks'
+import { ROLE_LABELS, roleForLevel, userPowerLevel } from '@/store/power'
 import { loadProfile, useProfiles } from '@/store/profiles'
-import { showToast, useUI } from '@/store/ui'
+import { openLightbox, showToast, useUI } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar, IconButton, Spinner } from '@/ui/primitives'
 
@@ -62,7 +63,7 @@ function localTime(timeZone: string) {
   }
 }
 
-function Banner({ mxc, userID }: { mxc?: string; userID: UserID }) {
+function Banner({ mxc, userID, name }: { mxc?: string; userID: UserID; name: string }) {
   const url = mediaURL(mxc)
   const [failed, setFailed] = useState(false)
   if (!url || failed) {
@@ -74,9 +75,14 @@ function Banner({ mxc, userID }: { mxc?: string; userID: UserID }) {
     )
   }
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" title="Open banner at full size" className="profile-banner block h-28 w-full overflow-hidden bg-surface-2">
+    <button
+      type="button"
+      title="View banner"
+      onClick={() => openLightbox(url, `${name} banner`)}
+      className="profile-banner block h-28 w-full overflow-hidden bg-surface-2"
+    >
       <img src={url} alt="" onError={() => setFailed(true)} className="size-full object-cover" />
-    </a>
+    </button>
   )
 }
 
@@ -87,9 +93,9 @@ function LargeAvatar({ mxc, userID, name }: { mxc?: string; userID: UserID; name
     return <Avatar id={userID} name={name} size={88} className="ring-4 ring-[var(--drawer-bg)]" />
   }
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" title="Open avatar at full size" className="block rounded-full">
+    <button type="button" title="View avatar" onClick={() => openLightbox(url, `${name} avatar`)} className="block rounded-full">
       <img src={url} alt="" onError={() => setFailed(true)} className="user-avatar size-[88px] bg-surface-2 ring-4 ring-[var(--drawer-bg)]" />
-    </a>
+    </button>
   )
 }
 
@@ -100,6 +106,7 @@ function SectionTitle({ children }: { children: string }) {
 export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: UserID }) {
   const member = useMember(roomID, userID)
   const entry = useProfiles(s => s.profiles[userID])
+  const { powerLevels, createEvent } = useRoomPowerContext(roomID)
 
   useEffect(() => {
     void loadProfile(userID, true)
@@ -112,11 +119,14 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
   const globalAvatar = asString(profile.avatar_url)
   const roomAvatar = asString(member?.avatar_url)
   const avatar = roomAvatar ?? globalAvatar
-  const showGlobalAvatar = !!roomAvatar && !!globalAvatar && roomAvatar !== globalAvatar
+  const globalAvatarURL = mediaURL(globalAvatar)
+  const showGlobalAvatar = !!roomAvatar && !!globalAvatarURL && roomAvatar !== globalAvatar
   const pronouns = pronounsOf(profile['io.fsky.nyx.pronouns'])
   const status = statusOf(profile)
   const timeZone = asString(profile['m.tz'] ?? profile['us.cloke.msc4175.tz'])
   const time = timeZone ? localTime(timeZone) : undefined
+  const level = userPowerLevel(powerLevels, createEvent, userID)
+  const role = roleForLevel(level)
   const extras = Object.entries(profile)
     .filter(([key]) => !KNOWN_FIELDS.has(key))
     .map(([key, value]) => [key, describeField(value)] as const)
@@ -139,20 +149,19 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
       </div>
       <div className="user-profile min-h-0 flex-1 overflow-y-auto pb-6">
         <div className="relative">
-          <Banner mxc={asString(profile['chat.commet.profile_banner'])} userID={userID} />
+          <Banner mxc={asString(profile['chat.commet.profile_banner'])} userID={userID} name={name} />
           <div className="absolute -bottom-11 left-4 flex items-end gap-2">
             <LargeAvatar key={avatar} mxc={avatar} userID={userID} name={name} />
             {showGlobalAvatar && (
-              <a
-                href={mediaURL(globalAvatar)}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Global avatar (open at full size)"
+              <button
+                type="button"
+                onClick={() => openLightbox(globalAvatarURL, `${globalName ?? name} global avatar`)}
+                title="View global avatar"
                 className="mb-1 flex items-center gap-1.5 rounded-full border border-border bg-surface py-0.5 pl-0.5 pr-2 text-[11px] text-muted transition-colors hover:text-fg"
               >
                 <Avatar mxc={globalAvatar} id={userID} name={globalName ?? name} size={24} />
                 Global
-              </a>
+              </button>
             )}
           </div>
         </div>
@@ -183,8 +192,17 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
             </button>
           </div>
 
-          {(pronouns.length > 0 || !!status?.text || !!time) && (
+          {(pronouns.length > 0 || !!status?.text || !!time || level > 0) && (
             <div className="flex flex-wrap gap-1.5 text-xs">
+              {level > 0 && (
+                <span
+                  className="profile-role flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5"
+                  title={level === Infinity ? undefined : `Power level ${level}`}
+                >
+                  <Shield size={11} /> {ROLE_LABELS[role]}
+                  {level !== Infinity && role === 'member' ? ` · ${level}` : ''}
+                </span>
+              )}
               {pronouns.map(pronoun => (
                 <span key={pronoun} className="profile-pronouns rounded-full bg-surface-2 px-2 py-0.5">
                   {pronoun}

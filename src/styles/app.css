@@ -387,3 +387,12 @@
     box-shadow: inset 3px 0 0 transparent;
   }
 }
+
+@keyframes lightbox-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

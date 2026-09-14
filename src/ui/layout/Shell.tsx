@@ -4,6 +4,8 @@ import { useEffect } from 'react'
 import { useChat } from '@/store/chat'
 import { roomIDsInRows, spaceListRows } from '@/store/spaces'
 import { openRoom, useUI } from '@/store/ui'
+import { AppearanceDialog } from '@/ui/AppearanceDialog'
+import { Lightbox } from '@/ui/Lightbox'
 import { CommandPalette } from '@/ui/palette/CommandPalette'
 import { Kbd, Spinner } from '@/ui/primitives'
 import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
@@ -33,16 +35,19 @@ function useGlobalShortcuts() {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
       const ui = useUI.getState()
-      const overlayOpen = ui.paletteOpen || !!ui.dialog
+      // Modal overlays handle their own keys (Esc closes them, R rotates in the lightbox).
+      const overlayOpen = ui.paletteOpen || !!ui.dialog || !!ui.lightbox || ui.appearanceOpen
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         useUI.setState({ paletteOpen: !ui.paletteOpen })
+      } else if (overlayOpen) {
+        return
       } else if (mod && e.key === '.') {
         e.preventDefault()
         // Shows room details (replacing a thread or profile on top), or hides them.
         const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID
         useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null })
-      } else if (e.key === 'Escape' && !isEditable(e.target) && !overlayOpen && (ui.profileUserID || ui.threadRoot || ui.drawerOpen)) {
+      } else if (e.key === 'Escape' && !isEditable(e.target) && (ui.profileUserID || ui.threadRoot || ui.drawerOpen)) {
         // Close the top-most right panel view, revealing what's underneath.
         if (ui.profileUserID) useUI.setState({ profileUserID: null })
         else if (ui.threadRoot) useUI.setState({ threadRoot: null })
@@ -50,7 +55,7 @@ function useGlobalShortcuts() {
       } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault()
         stepRoom(e.key === 'ArrowUp' ? -1 : 1)
-      } else if (!mod && !e.altKey && e.key.length === 1 && !isEditable(e.target) && !overlayOpen) {
+      } else if (!mod && !e.altKey && e.key.length === 1 && !isEditable(e.target)) {
         // Type anywhere to start composing.
         document.getElementById('composer-input')?.focus()
       }
@@ -128,6 +133,8 @@ export function Shell() {
       </div>
       <CommandPalette />
       <MessageDialogs />
+      <AppearanceDialog />
+      <Lightbox />
       <Toaster />
     </div>
   )
