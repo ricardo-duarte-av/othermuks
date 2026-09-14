@@ -1,0 +1,468 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import {
+  Code,
+  Copy,
+  Ellipsis,
+  FileText,
+  Link2,
+  LockKeyhole,
+  MessagesSquare,
+  Pencil,
+  Reply,
+  SmilePlus,
+  Trash2,
+} from 'lucide-react'
+import { memo, useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { client } from '@/api/client'
+import { mediaURL, userColorIndex } from '@/api/media'
+import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID } from '@/api/types'
+import { cn } from '@/lib/cn'
+import { formatBytes, formatDay, formatFull, formatTime } from '@/lib/format'
+import { fetchEvent, selectOwnUserID, useChat } from '@/store/chat'
+import {
+  describeStateEvent,
+  displayContent,
+  isMessageLike,
+  isPendingEvent,
+  previewText,
+  type TimelineEvent,
+} from '@/store/events'
+import { useMember } from '@/store/hooks'
+import { openThread, showToast, useUI } from '@/store/ui'
+import { sanitizeHTML } from '@/ui/html'
+import { Avatar } from '@/ui/primitives'
+import { ReactionPicker } from './ReactionPicker'
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂']
+const EDITABLE_MSGTYPES = new Set(['m.text', 'm.emote', 'm.notice'])
+
+interface RowProps {
+  roomID: RoomID
+  rowid: EventRowID
+  compact: boolean
+  newDay: boolean
+  /** Set when the row is rendered inside a thread panel. */
+  threadRoot?: EventID
+}
+
+export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot }: RowProps) {
+  const evt = useChat(s => s.events[rowid])
+  const ownUserID = useChat(selectOwnUserID)
+  if (!evt) return null
+  return (
+    <>
+      {newDay && <DaySeparator ts={evt.timestamp} />}
+      {isMessageLike(evt) ? (
+        <MessageRow roomID={roomID} evt={evt} compact={compact} own={evt.sender === ownUserID} threadRoot={threadRoot} />
+      ) : (
+        <StateRow roomID={roomID} evt={evt} />
+      )}
+    </>
+  )
+})
+
+function DaySeparator({ ts }: { ts: number }) {
+  return (
+    <div role="separator" className="day-separator flex items-center gap-3 px-4 pb-1 pt-5 text-xs font-medium text-muted">
+      <span className="h-px flex-1 bg-border" />
+      {formatDay(ts)}
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  )
+}
+
+const userColor = (userID: string) => `var(--user-color-${userColorIndex(userID)})`
+
+function StateRow({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+  const sender = useMember(roomID, evt.sender)
+  const target = useMember(roomID, evt.state_key)
+  const senderName = sender?.displayname || evt.sender
+  const ownName = evt.type === 'm.room.member' ? (evt.content.displayname as string | undefined) : undefined
+  const prevName = evt.unsigned.prev_content?.displayname as string | undefined
+  const targetName = ownName || prevName || target?.displayname || evt.state_key || ''
+  return (
+    <div className="state-event group flex items-center gap-3 px-4 py-0.5 text-xs text-muted">
+      <div className="w-10 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{describeStateEvent(evt, senderName, targetName)}</span>
+      <time title={formatFull(evt.timestamp)} className="invisible shrink-0 tabular-nums group-hover:visible">
+        {formatTime(evt.timestamp)}
+      </time>
+    </div>
+  )
+}
+
+interface MessageRowProps {
+  roomID: RoomID
+  evt: TimelineEvent
+  compact: boolean
+  own: boolean
+  threadRoot?: EventID
+}
+
+function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) {
+  const member = useMember(roomID, evt.sender)
+  const lastEdit = useChat(s => (evt.last_edit_rowid ? s.events[evt.last_edit_rowid] : undefined))
+  const name = member?.displayname || evt.sender
+  const { content, localContent } = displayContent(evt, lastEdit)
+  const relation = evt.content['m.relates_to'] as RelatesTo | undefined
+  // Thread replies carry a fallback reply to the previous thread message; only explicit replies get a preview.
+  const replyTo = relation?.is_falling_back ? undefined : relation?.['m.in_reply_to']?.event_id
+  const pending = isPendingEvent(evt) && !evt.send_error
+
+  return (
+    <div
+      className={cn('chat-message group relative flex gap-3 px-4', compact ? 'py-px' : 'pb-px pt-2')}
+      data-own={own || undefined}
+      data-pending={pending || undefined}
+      data-failed={evt.send_error ? true : undefined}
+    >
+      <div className="flex w-10 shrink-0 justify-end">
+        {compact ? (
+          <time title={formatFull(evt.timestamp)} className="invisible pt-[5px] text-[10px] tabular-nums text-muted group-hover:visible">
+            {formatTime(evt.timestamp)}
+          </time>
+        ) : (
+          <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={40} className="mt-0.5" />
+        )}
+      </div>
+      <div className={cn('chat-bubble flex-1', pending && 'opacity-60')}>
+        {!compact && (
+          <div className="flex items-baseline gap-2 leading-tight">
+            <span className="sender-name truncate text-sm font-semibold" style={{ color: userColor(evt.sender) }}>
+              {name}
+            </span>
+            <time title={formatFull(evt.timestamp)} className="shrink-0 text-[11px] tabular-nums text-muted">
+              {formatTime(evt.timestamp)}
+            </time>
+          </div>
+        )}
+        {replyTo && <ReplyPreview roomID={roomID} eventID={replyTo} />}
+        <MessageContent evt={evt} content={content} localContent={localContent} senderName={name} />
+        {lastEdit && !evt.redacted_by && <span className="edited-marker text-[11px] text-muted">(edited)</span>}
+        {evt.send_error && <p className="text-xs text-danger">Failed to send: {evt.send_error}</p>}
+        {evt.reactions && !evt.redacted_by && <Reactions roomID={roomID} evt={evt} />}
+        {!threadRoot && !isPendingEvent(evt) && <ThreadSummary eventID={evt.event_id} />}
+      </div>
+      {!isPendingEvent(evt) && !evt.redacted_by && (
+        <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} />
+      )}
+    </div>
+  )
+}
+
+interface ContentProps {
+  evt: TimelineEvent
+  content: MessageEventContent
+  localContent?: LocalContent
+  senderName: string
+}
+
+function MessageContent({ evt, content, localContent, senderName }: ContentProps) {
+  if (evt.redacted_by) return <p className="message-body text-sm italic text-muted">Message deleted</p>
+  if (evt.type === 'm.room.encrypted') {
+    return (
+      <p className="message-body flex items-center gap-1.5 text-sm italic text-muted">
+        <LockKeyhole size={13} />
+        {evt.decryption_error ? `Unable to decrypt: ${evt.decryption_error}` : 'Waiting for encryption keys'}
+      </p>
+    )
+  }
+  const msgtype = evt.type === 'm.sticker' ? 'm.sticker' : content.msgtype
+  switch (msgtype) {
+    case 'm.image':
+    case 'm.sticker':
+    case 'm.video':
+    case 'm.audio':
+    case 'm.file': {
+      const hasCaption = !!content.filename && content.body !== content.filename
+      return (
+        <>
+          {hasCaption && <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} />}
+          <MediaContent content={content} msgtype={msgtype} />
+        </>
+      )
+    }
+    default:
+      return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} />
+  }
+}
+
+function TextBody({ content, localContent, msgtype, senderName }: Omit<ContentProps, 'evt'> & { msgtype: string }) {
+  const html = localContent?.sanitized_html
+  return (
+    <div
+      className={cn('message-body text-[15px]', msgtype === 'm.notice' && 'text-muted')}
+      data-big-emoji={localContent?.big_emoji || undefined}
+    >
+      {msgtype === 'm.emote' && <span className="font-medium">* {senderName} </span>}
+      {html ? (
+        <div className="contents" dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }} />
+      ) : (
+        <span className="whitespace-pre-wrap">{content.body}</span>
+      )}
+    </div>
+  )
+}
+
+function fitSize(w: number | undefined, h: number | undefined, maxW: number, maxH: number) {
+  if (!w || !h) return undefined
+  const scale = Math.min(1, maxW / w, maxH / h)
+  return { width: Math.round(w * scale), height: Math.round(h * scale) }
+}
+
+function MediaContent({ content, msgtype }: { content: MessageEventContent; msgtype: string }) {
+  const encrypted = !!content.file
+  const url = mediaURL(content.file?.url ?? content.url, encrypted)
+  const info = content.info ?? {}
+  if (!url) return <p className="text-sm italic text-muted">Invalid media</p>
+
+  // Show the sender-provided thumbnail inline and keep the original for click-through,
+  // so a room full of multi-megabyte photos doesn't download them all.
+  const thumbnail = info.thumbnail_file ? mediaURL(info.thumbnail_file.url, true) : mediaURL(info.thumbnail_url)
+  const isSticker = msgtype === 'm.sticker'
+  const size = fitSize(info.w, info.h, isSticker ? 180 : 420, isSticker ? 180 : 340)
+  const boxStyle = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined
+
+  switch (msgtype) {
+    case 'm.image':
+    case 'm.sticker': {
+      const inlineURL = msgtype === 'm.image' && thumbnail && info.mimetype !== 'image/gif' ? thumbnail : url
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn('media-image mt-1 block max-w-full overflow-hidden rounded-lg', !isSticker && 'border border-border bg-surface')}
+          style={boxStyle ?? { maxWidth: 420 }}
+        >
+          <img src={inlineURL} alt={content.body} loading="lazy" decoding="async" className="size-full object-cover" />
+        </a>
+      )
+    }
+    case 'm.video':
+      return (
+        <video
+          src={url}
+          poster={thumbnail}
+          controls
+          preload="none"
+          className="media-video mt-1 max-w-full rounded-lg bg-black"
+          style={boxStyle ?? { width: 420 }}
+        />
+      )
+    case 'm.audio':
+      return <audio src={url} controls preload="none" className="media-audio mt-1 w-80 max-w-full" />
+    default:
+      return (
+        <a
+          href={url}
+          download={content.filename ?? content.body}
+          className="media-file mt-1 flex w-fit max-w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 transition-colors hover:bg-hover"
+        >
+          <FileText size={22} className="shrink-0 text-accent" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{content.filename ?? content.body}</span>
+            <span className="block text-xs text-muted">{[formatBytes(info.size), info.mimetype].filter(Boolean).join(' · ')}</span>
+          </span>
+        </a>
+      )
+  }
+}
+
+function ReplyPreview({ roomID, eventID }: { roomID: RoomID; eventID: EventID }) {
+  const evt = useChat(s => {
+    const rowid = s.eventIDs[eventID]
+    return rowid === undefined ? undefined : s.events[rowid]
+  })
+  const member = useMember(roomID, evt?.sender)
+  useEffect(() => {
+    if (!evt) void fetchEvent(roomID, eventID)
+  }, [evt, roomID, eventID])
+
+  return (
+    <div
+      className="reply-preview my-0.5 flex min-w-0 max-w-xl items-center gap-1.5 border-l-2 pl-2 text-[13px]"
+      style={{ borderColor: evt ? userColor(evt.sender) : 'var(--border)' }}
+    >
+      {evt ? (
+        <>
+          <span className="shrink-0 font-medium" style={{ color: userColor(evt.sender) }}>
+            {member?.displayname || evt.sender}
+          </span>
+          <span className="truncate text-muted">{previewText(evt)}</span>
+        </>
+      ) : (
+        <span className="text-muted">Loading reply…</span>
+      )}
+    </div>
+  )
+}
+
+function ThreadSummary({ eventID }: { eventID: EventID }) {
+  const count = useChat(s => s.threads[eventID]?.length ?? 0)
+  if (!count) return null
+  return (
+    <button
+      type="button"
+      onClick={() => openThread(eventID)}
+      className="thread-summary mt-1 flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-hover"
+    >
+      <MessagesSquare size={13} />
+      {count} {count === 1 ? 'reply' : 'replies'}
+    </button>
+  )
+}
+
+function Reactions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+  const entries = Object.entries(evt.reactions ?? {})
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+  if (!entries.length) return null
+  return (
+    <div className="reactions mt-1 flex flex-wrap gap-1">
+      {entries.map(([key, count]) => (
+        <button
+          key={key}
+          type="button"
+          title={key}
+          onClick={() => react(roomID, evt.event_id, key)}
+          className="reaction-chip flex h-6 items-center gap-1 rounded-full px-2 text-xs transition hover:brightness-110"
+        >
+          {key.startsWith('mxc://') ? <img src={mediaURL(key)} alt={key} className="size-4 object-contain" /> : <span>{key}</span>}
+          <span className="tabular-nums text-muted">{count}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+function react(roomID: RoomID, eventID: EventID, key: string) {
+  client.sendReaction(roomID, eventID, key).catch(err => showToast(`Couldn't react: ${errorText(err)}`))
+}
+
+async function copyToClipboard(text: string, success: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    showToast(success)
+  } catch (err) {
+    showToast(`Couldn't copy: ${errorText(err)}`)
+  }
+}
+
+function ActionButton({ label, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      className={cn(
+        'grid size-8 place-items-center rounded-md text-muted transition-colors hover:bg-hover hover:text-fg data-[state=open]:bg-hover data-[state=open]:text-fg',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
+const menuItemClass =
+  'flex cursor-default select-none items-center gap-2.5 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-hover'
+
+function MenuItem({ icon, onSelect, danger, children }: { icon: ReactNode; onSelect: () => void; danger?: boolean; children: ReactNode }) {
+  return (
+    <DropdownMenu.Item onSelect={onSelect} className={cn(menuItemClass, danger && 'text-danger')}>
+      <span className={cn('text-muted', danger && 'text-danger')}>{icon}</span>
+      {children}
+    </DropdownMenu.Item>
+  )
+}
+
+function MessageActions({ roomID, evt, own, threadRoot }: { roomID: RoomID; evt: TimelineEvent; own: boolean; threadRoot?: EventID }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const msgtype = evt.content.msgtype as string | undefined
+  const editable = own && evt.type === 'm.room.message' && EDITABLE_MSGTYPES.has(msgtype ?? '')
+  const scope = threadRoot ?? null
+  // Dialogs open after the menu has closed, so focus handling doesn't fight between them.
+  const openDialog = (type: 'source' | 'delete') => requestAnimationFrame(() => useUI.setState({ dialog: { type, rowid: evt.rowid } }))
+
+  const copyText = () => {
+    const { events } = useChat.getState()
+    const { content } = displayContent(evt, evt.last_edit_rowid ? events[evt.last_edit_rowid] : undefined)
+    void copyToClipboard(content.body ?? '', 'Message copied')
+  }
+
+  return (
+    <div
+      role="toolbar"
+      aria-label="Message actions"
+      className={cn(
+        'message-actions absolute -top-4 right-4 z-10 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-md',
+        pickerOpen || menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex',
+      )}
+    >
+      {QUICK_REACTIONS.map(key => (
+        <ActionButton key={key} label={`React with ${key}`} onClick={() => react(roomID, evt.event_id, key)}>
+          <span className="text-base leading-none">{key}</span>
+        </ActionButton>
+      ))}
+      <ReactionPicker open={pickerOpen} onOpenChange={setPickerOpen} onSelect={key => react(roomID, evt.event_id, key)}>
+        <ActionButton label="Add reaction">
+          <SmilePlus size={16} />
+        </ActionButton>
+      </ReactionPicker>
+      <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
+      <ActionButton label="Reply" onClick={() => useUI.setState({ replyTo: evt.rowid, editing: null, composerScope: scope })}>
+        <Reply size={16} />
+      </ActionButton>
+      {!threadRoot && (
+        <ActionButton label="Reply in thread" onClick={() => openThread(evt.event_id)}>
+          <MessagesSquare size={16} />
+        </ActionButton>
+      )}
+      {editable && (
+        <ActionButton label="Edit" onClick={() => useUI.setState({ editing: evt.rowid, replyTo: null, composerScope: scope })}>
+          <Pencil size={15} />
+        </ActionButton>
+      )}
+      <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
+        <DropdownMenu.Trigger asChild>
+          <ActionButton label="More options">
+            <Ellipsis size={16} />
+          </ActionButton>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={6}
+            collisionPadding={12}
+            className="message-menu z-50 min-w-48 rounded-lg border border-border bg-surface p-1 text-fg shadow-xl"
+          >
+            <MenuItem icon={<Link2 size={15} />} onSelect={() => void copyToClipboard(`https://matrix.to/#/${roomID}/${evt.event_id}`, 'Link copied')}>
+              Share link
+            </MenuItem>
+            {typeof evt.content.body === 'string' && (
+              <MenuItem icon={<Copy size={15} />} onSelect={copyText}>
+                Copy text
+              </MenuItem>
+            )}
+            <MenuItem icon={<Code size={15} />} onSelect={() => openDialog('source')}>
+              View source
+            </MenuItem>
+            {own && (
+              <>
+                <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                <MenuItem icon={<Trash2 size={15} />} onSelect={() => openDialog('delete')} danger>
+                  Delete
+                </MenuItem>
+              </>
+            )}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    </div>
+  )
+}

@@ -1,0 +1,368 @@
+@import "tailwindcss";
+
+/*
+ * Theme system
+ * 1. Palette tokens (--bg, --fg, --accent, ...) are defined per [data-theme] in OKLCH.
+ * 2. Component tokens (--badge-bg, --pill-text, ...) default to palette tokens.
+ * 3. Components use semantic class names (.unread-badge, .chat-bubble, ...).
+ * Component styles live in @layer components, so any unlayered user CSS wins:
+ *   .unread-badge { --badge-bg: fuchsia; --badge-text: black; }
+ */
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hover: var(--hover);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+}
+
+:root {
+  --font-ui: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-code: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+  --radius: 0.625rem;
+}
+
+:root,
+[data-theme="midnight"] {
+  --bg: oklch(0.17 0.012 270);
+  --surface: oklch(0.205 0.014 270);
+  --surface-2: oklch(0.25 0.018 270);
+  --hover: oklch(0.27 0.02 270 / 0.6);
+  --border: oklch(0.3 0.015 270 / 0.8);
+  --fg: oklch(0.94 0.008 270);
+  --muted: oklch(0.68 0.02 270);
+  --accent: oklch(0.72 0.14 265);
+  --accent-fg: oklch(0.17 0.02 265);
+  --danger: oklch(0.68 0.2 25);
+  --success: oklch(0.75 0.15 150);
+  --user-color-0: oklch(0.76 0.14 25);
+  --user-color-1: oklch(0.78 0.13 60);
+  --user-color-2: oklch(0.8 0.14 110);
+  --user-color-3: oklch(0.76 0.13 160);
+  --user-color-4: oklch(0.76 0.11 210);
+  --user-color-5: oklch(0.72 0.13 260);
+  --user-color-6: oklch(0.74 0.15 305);
+  --user-color-7: oklch(0.76 0.15 350);
+  color-scheme: dark;
+
+  /* component tokens */
+  --rail-bg: oklch(from var(--surface) calc(l - 0.025) c h);
+  --sidebar-bg: var(--surface);
+  --timeline-bg: var(--bg);
+  --drawer-bg: var(--surface);
+  --room-item-hover-bg: var(--hover);
+  --room-item-active-bg: var(--surface-2);
+  --room-item-active-text: var(--fg);
+  --badge-bg: var(--surface-2);
+  --badge-text: var(--fg);
+  --badge-notify-bg: var(--accent);
+  --badge-notify-text: var(--accent-fg);
+  --badge-highlight-bg: var(--danger);
+  --badge-highlight-text: oklch(0.99 0 0);
+  --avatar-radius: 9999px;
+  --bubble-bg: transparent;
+  --bubble-own-bg: transparent;
+  --bubble-radius: var(--radius);
+  --message-hover-bg: oklch(from var(--surface) l c h / 0.6);
+  --pill-bg: oklch(from var(--accent) l c h / 0.18);
+  --pill-text: var(--accent);
+  --reaction-bg: var(--surface-2);
+  --reaction-own-bg: oklch(from var(--accent) l c h / 0.22);
+  --composer-bg: var(--surface);
+  --code-bg: oklch(from var(--bg) calc(l - 0.03) c h);
+}
+
+[data-theme="daylight"] {
+  --bg: oklch(0.99 0.003 270);
+  --surface: oklch(0.965 0.006 270);
+  --surface-2: oklch(0.92 0.01 270);
+  --hover: oklch(0.93 0.01 270 / 0.7);
+  --border: oklch(0.88 0.01 270);
+  --fg: oklch(0.22 0.02 270);
+  --muted: oklch(0.5 0.02 270);
+  --accent: oklch(0.55 0.17 265);
+  --accent-fg: oklch(0.99 0 0);
+  --danger: oklch(0.58 0.21 25);
+  --success: oklch(0.58 0.15 150);
+  --user-color-0: oklch(0.55 0.17 25);
+  --user-color-1: oklch(0.56 0.13 60);
+  --user-color-2: oklch(0.55 0.13 120);
+  --user-color-3: oklch(0.54 0.12 160);
+  --user-color-4: oklch(0.54 0.11 220);
+  --user-color-5: oklch(0.52 0.15 265);
+  --user-color-6: oklch(0.52 0.17 305);
+  --user-color-7: oklch(0.55 0.18 350);
+  color-scheme: light;
+}
+
+[data-theme="dracula"] {
+  --bg: oklch(0.225 0.02 285);
+  --surface: oklch(0.265 0.024 285);
+  --surface-2: oklch(0.33 0.03 285);
+  --hover: oklch(0.34 0.035 285 / 0.6);
+  --border: oklch(0.37 0.03 285 / 0.8);
+  --fg: oklch(0.97 0.01 110);
+  --muted: oklch(0.6 0.06 280);
+  --accent: oklch(0.74 0.15 305);
+  --accent-fg: oklch(0.22 0.02 285);
+  --danger: oklch(0.68 0.21 25);
+  --success: oklch(0.87 0.22 145);
+  --user-color-0: oklch(0.68 0.21 25);
+  --user-color-1: oklch(0.83 0.12 70);
+  --user-color-2: oklch(0.93 0.13 105);
+  --user-color-3: oklch(0.87 0.22 145);
+  --user-color-4: oklch(0.88 0.1 200);
+  --user-color-5: oklch(0.74 0.15 305);
+  --user-color-6: oklch(0.76 0.17 350);
+  --user-color-7: oklch(0.8 0.1 250);
+  color-scheme: dark;
+}
+
+[data-theme="mocha"] {
+  --bg: oklch(0.24 0.03 283);
+  --surface: oklch(0.216 0.025 284);
+  --surface-2: oklch(0.32 0.032 282);
+  --hover: oklch(0.32 0.032 282 / 0.6);
+  --border: oklch(0.36 0.03 280 / 0.8);
+  --fg: oklch(0.88 0.04 275);
+  --muted: oklch(0.63 0.04 280);
+  --accent: oklch(0.79 0.12 305);
+  --accent-fg: oklch(0.24 0.03 283);
+  --danger: oklch(0.76 0.13 2);
+  --success: oklch(0.86 0.11 142);
+  --user-color-0: oklch(0.76 0.13 2);
+  --user-color-1: oklch(0.82 0.1 50);
+  --user-color-2: oklch(0.92 0.07 90);
+  --user-color-3: oklch(0.86 0.11 142);
+  --user-color-4: oklch(0.86 0.08 190);
+  --user-color-5: oklch(0.77 0.11 260);
+  --user-color-6: oklch(0.79 0.12 305);
+  --user-color-7: oklch(0.87 0.06 20);
+  color-scheme: dark;
+}
+
+[data-theme="nord"] {
+  --bg: oklch(0.32 0.023 264);
+  --surface: oklch(0.29 0.02 264);
+  --surface-2: oklch(0.38 0.03 265);
+  --hover: oklch(0.38 0.03 265 / 0.55);
+  --border: oklch(0.42 0.03 265 / 0.7);
+  --fg: oklch(0.95 0.01 250);
+  --muted: oklch(0.74 0.03 250);
+  --accent: oklch(0.77 0.08 210);
+  --accent-fg: oklch(0.29 0.02 264);
+  --danger: oklch(0.64 0.12 20);
+  --success: oklch(0.77 0.08 130);
+  --user-color-0: oklch(0.64 0.12 20);
+  --user-color-1: oklch(0.72 0.1 50);
+  --user-color-2: oklch(0.86 0.1 90);
+  --user-color-3: oklch(0.77 0.08 130);
+  --user-color-4: oklch(0.8 0.06 190);
+  --user-color-5: oklch(0.7 0.07 250);
+  --user-color-6: oklch(0.69 0.08 320);
+  --user-color-7: oklch(0.77 0.08 210);
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: oklch(from var(--accent) l c h / 0.35);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-2) transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .user-avatar {
+    border-radius: var(--avatar-radius);
+    object-fit: cover;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .unread-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding-inline: 0.375rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    background: var(--badge-bg);
+    color: var(--badge-text);
+  }
+
+  .unread-badge[data-level="notify"] {
+    background: var(--badge-notify-bg);
+    color: var(--badge-notify-text);
+  }
+
+  .unread-badge[data-level="highlight"] {
+    background: var(--badge-highlight-bg);
+    color: var(--badge-highlight-text);
+  }
+
+  .room-list-item:hover {
+    background: var(--room-item-hover-bg);
+  }
+
+  .room-list-item[data-active] {
+    background: var(--room-item-active-bg);
+    color: var(--room-item-active-text);
+  }
+
+  .chat-message:hover {
+    background: var(--message-hover-bg);
+  }
+
+  .chat-bubble {
+    background: var(--bubble-bg);
+    border-radius: var(--bubble-radius);
+    min-width: 0;
+  }
+
+  .chat-message[data-own] .chat-bubble {
+    background: var(--bubble-own-bg);
+  }
+
+  .message-body {
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+
+  .message-body p + p {
+    margin-top: 0.5em;
+  }
+
+  .message-body a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .message-body a.mention-pill {
+    background: var(--pill-bg);
+    color: var(--pill-text);
+    text-decoration: none;
+    border-radius: 9999px;
+    padding: 0.05em 0.45em;
+    font-weight: 500;
+  }
+
+  .message-body blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 0.75em;
+    color: var(--muted);
+  }
+
+  .message-body code {
+    font-family: var(--font-code);
+    font-size: 0.875em;
+    background: var(--code-bg);
+    border-radius: 0.3em;
+    padding: 0.1em 0.3em;
+  }
+
+  .message-body pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75em 1em;
+    overflow-x: auto;
+    margin-block: 0.25em;
+  }
+
+  .message-body pre code {
+    background: none;
+    padding: 0;
+  }
+
+  .message-body ul {
+    list-style: disc;
+    padding-left: 1.5em;
+  }
+
+  .message-body ol {
+    list-style: decimal;
+    padding-left: 1.5em;
+  }
+
+  .message-body h1,
+  .message-body h2,
+  .message-body h3 {
+    font-weight: 600;
+    margin-block: 0.25em;
+  }
+
+  .message-body img[data-mx-emoticon] {
+    display: inline;
+    height: 1.5em;
+    vertical-align: middle;
+  }
+
+  .message-body span[data-mx-spoiler] {
+    background: var(--fg);
+    color: transparent;
+    border-radius: 0.25em;
+    cursor: pointer;
+    transition: color 150ms, background 150ms;
+  }
+
+  .message-body span[data-mx-spoiler]:hover {
+    background: var(--surface-2);
+    color: var(--fg);
+  }
+
+  .message-body[data-big-emoji] {
+    font-size: 2.5rem;
+    line-height: 1.2;
+  }
+
+  .reaction-chip {
+    background: var(--reaction-bg);
+  }
+
+  .reaction-chip[data-own] {
+    background: var(--reaction-own-bg);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .composer {
+    background: var(--composer-bg);
+  }
+}

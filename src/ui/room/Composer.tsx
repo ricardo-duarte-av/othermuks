@@ -1,0 +1,197 @@
+import { Paperclip, Pencil, Reply, SendHorizontal, X } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { client } from '@/api/client'
+import type { EventID, RoomID } from '@/api/types'
+import { cn } from '@/lib/cn'
+import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
+import { displayContent } from '@/store/events'
+import { useMember } from '@/store/hooks'
+import { useUI } from '@/store/ui'
+import { IconButton, Spinner } from '@/ui/primitives'
+
+const TYPING_TIMEOUT = 10_000
+const TYPING_RESEND = 4_000
+const drafts = new Map<string, string>()
+
+interface ComposerProps {
+  roomID: RoomID
+  /** Send into this thread instead of the main timeline. */
+  threadRoot?: EventID
+}
+
+export function Composer({ roomID, threadRoot }: ComposerProps) {
+  // Reply/edit state is global; each composer only acts on the state aimed at its own scope.
+  const scope = threadRoot ?? null
+  const draftKey = threadRoot ? `${roomID}|${threadRoot}` : roomID
+  const replyToRowID = useUI(s => (s.composerScope === scope ? s.replyTo : null))
+  const editingRowID = useUI(s => (s.composerScope === scope ? s.editing : null))
+  const replyTo = useChat(s => (replyToRowID == null ? undefined : s.events[replyToRowID]))
+  const editing = useChat(s => (editingRowID == null ? undefined : s.events[editingRowID]))
+  const roomName = useChat(s => s.rooms[roomID]?.meta.name)
+  const replyMember = useMember(roomID, replyTo?.sender)
+
+  const [text, setText] = useState(() => drafts.get(draftKey) ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(0)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const typingSentAt = useRef(0)
+
+  useEffect(() => {
+    drafts.set(draftKey, text)
+  }, [draftKey, text])
+
+  // Load the message source into the input when editing starts.
+  useEffect(() => {
+    if (editingRowID == null) return
+    const { events } = useChat.getState()
+    const evt = events[editingRowID]
+    if (!evt) return
+    const { content, localContent } = displayContent(evt, evt.last_edit_rowid ? events[evt.last_edit_rowid] : undefined)
+    setText(localContent?.edit_source ?? content.body ?? '')
+    requestAnimationFrame(() => {
+      const input = inputRef.current
+      input?.focus()
+      input?.setSelectionRange(input.value.length, input.value.length)
+    })
+  }, [editingRowID])
+
+  useEffect(() => {
+    if (replyToRowID != null) inputRef.current?.focus()
+  }, [replyToRowID])
+
+  const stopTyping = () => {
+    if (!typingSentAt.current) return
+    typingSentAt.current = 0
+    client.setTyping(roomID, 0).catch(() => {})
+  }
+
+  useEffect(() => stopTyping, [roomID])
+
+  const cancelContext = () => {
+    if (editing) setText('')
+    useUI.setState({ replyTo: null, editing: null })
+  }
+
+  async function submit() {
+    const body = text.trim()
+    if (!body) return
+    const opts = { replyTo, edit: editing, threadRoot }
+    setText('')
+    setError(null)
+    if (replyTo || editing) useUI.setState({ replyTo: null, editing: null })
+    stopTyping()
+    try {
+      await sendText(roomID, body, opts)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setText(body)
+    }
+  }
+
+  async function upload(files: File[]) {
+    if (!files.length) return
+    setUploading(n => n + files.length)
+    setError(null)
+    try {
+      await uploadAndSend(roomID, files, threadRoot)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploading(n => n - files.length)
+    }
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      void submit()
+    } else if (e.key === 'Escape' && (replyTo || editing)) {
+      e.preventDefault()
+      cancelContext()
+    } else if (e.key === 'ArrowUp' && !text && !editing) {
+      const last = findLastOwnEditable(roomID, threadRoot)
+      if (last) {
+        e.preventDefault()
+        useUI.setState({ editing: last.rowid, replyTo: null, composerScope: scope })
+      }
+    }
+  }
+
+  function onChange(value: string) {
+    setText(value)
+    if (!value) {
+      stopTyping()
+    } else if (Date.now() - typingSentAt.current > TYPING_RESEND) {
+      typingSentAt.current = Date.now()
+      client.setTyping(roomID, TYPING_TIMEOUT).catch(() => {})
+    }
+  }
+
+  const context = editing
+    ? { icon: <Pencil size={13} />, label: 'Editing message' }
+    : replyTo
+      ? { icon: <Reply size={13} />, label: `Replying to ${replyMember?.displayname || replyTo.sender}` }
+      : null
+
+  return (
+    <div className="composer-wrap shrink-0 px-4 pb-4">
+      {context && (
+        <div className="composer-context flex items-center gap-2 rounded-t-xl border border-b-0 border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted">
+          {context.icon}
+          <span className="truncate">{context.label}</span>
+          <button type="button" aria-label="Cancel" onClick={cancelContext} className="ml-auto rounded p-0.5 hover:bg-hover hover:text-fg">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+      <div
+        className={cn(
+          'composer flex items-end gap-1 border border-border px-1.5 py-1.5 shadow-sm transition-colors focus-within:border-accent/60',
+          context ? 'rounded-b-xl' : 'rounded-xl',
+        )}
+      >
+        <IconButton label="Attach files" onClick={() => fileRef.current?.click()} disabled={uploading > 0}>
+          {uploading > 0 ? <Spinner size={17} /> : <Paperclip size={17} />}
+        </IconButton>
+        <textarea
+          id={threadRoot ? undefined : 'composer-input'}
+          ref={inputRef}
+          rows={1}
+          value={text}
+          autoFocus
+          placeholder={threadRoot ? 'Reply in thread…' : 'Send a message…'}
+          aria-label={threadRoot ? 'Reply in thread' : roomName ? `Message ${roomName}` : 'Message'}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={e => {
+            const files = Array.from(e.clipboardData.files)
+            if (files.length) {
+              e.preventDefault()
+              void upload(files)
+            }
+          }}
+          className="max-h-60 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[15px] leading-5 outline-none [field-sizing:content] placeholder:text-muted"
+        />
+        <IconButton label="Send" shortcut="Enter" onClick={() => void submit()} disabled={!text.trim()} className="enabled:text-accent">
+          <SendHorizontal size={17} />
+        </IconButton>
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          hidden
+          onChange={e => {
+            void upload(Array.from(e.target.files ?? []))
+            e.target.value = ''
+          }}
+        />
+      </div>
+      {error && (
+        <p className="mt-1.5 px-1 text-xs text-danger" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
