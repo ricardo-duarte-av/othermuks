@@ -289,7 +289,9 @@ export function handleRPCEvent(evt: RPCEvent) {
       break
     }
     case 'send_complete':
-      storeEvents([evt.data.event])
+      // The event carries the real event ID now (same rowid as the ~txn local echo). Its send_error is
+      // still the "not sent" placeholder even on success, so a real failure comes from data.error.
+      storeEvents([evt.data.error ? { ...evt.data.event, send_error: evt.data.error } : evt.data.event])
       break
     case 'typing':
       patchRoom(evt.data.room_id, { typing: evt.data.user_ids })

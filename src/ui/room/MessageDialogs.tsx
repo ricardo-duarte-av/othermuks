@@ -1,16 +1,31 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Copy, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { client } from '@/api/client'
+import type { LocalContent, MessageEventContent, RoomID, UserID } from '@/api/types'
+import { cn } from '@/lib/cn'
+import { formatFull } from '@/lib/format'
 import { useChat } from '@/store/chat'
-import { originalEvent, type TimelineEvent } from '@/store/events'
-import { showToast, useUI } from '@/store/ui'
-import { Spinner } from '@/ui/primitives'
+import { displayNameOf, normalizeEvent, originalEvent, type TimelineEvent } from '@/store/events'
+import { useMember } from '@/store/hooks'
+import { loadReactionDetails, reactionSignature, useReactionDetails } from '@/store/reactions'
+import { openProfile, showToast, useUI, type MessageDialog } from '@/store/ui'
+import { sanitizeHTML } from '@/ui/html'
+import { Avatar, Spinner } from '@/ui/primitives'
 
 const closeDialog = () => useUI.setState({ dialog: null })
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-/** View-source and delete-confirmation dialogs, rendered once for the whole app. */
+const DIALOG_WIDTH: Record<MessageDialog['type'], string> = {
+  source: 'w-[min(720px,calc(100vw-32px))]',
+  original: 'w-[min(640px,calc(100vw-32px))]',
+  edits: 'w-[min(640px,calc(100vw-32px))]',
+  reactions: 'w-[min(460px,calc(100vw-32px))]',
+  delete: 'w-[min(480px,calc(100vw-32px))]',
+}
+
+/** Message dialogs (source, original, edit history, reactions, delete), rendered once for the whole app. */
 export function MessageDialogs() {
   const dialog = useUI(s => s.dialog)
   const evt = useChat(s => (dialog ? s.events[dialog.rowid] : undefined))
@@ -22,9 +37,15 @@ export function MessageDialogs() {
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="message-dialog fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface text-fg shadow-2xl outline-none"
+          className={cn(
+            'message-dialog fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface text-fg shadow-2xl outline-none',
+            dialog && DIALOG_WIDTH[dialog.type],
+          )}
         >
           {dialog?.type === 'source' && evt && <SourceView evt={evt} />}
+          {dialog?.type === 'original' && evt && <OriginalView evt={evt} />}
+          {dialog?.type === 'edits' && evt && <EditHistoryView evt={evt} />}
+          {dialog?.type === 'reactions' && evt && <ReactionsView evt={evt} />}
           {dialog?.type === 'delete' && evt && <DeleteConfirm evt={evt} />}
         </Dialog.Content>
       </Dialog.Portal>
@@ -32,34 +53,268 @@ export function MessageDialogs() {
   )
 }
 
-function SourceView({ evt }: { evt: TimelineEvent }) {
-  const text = useMemo(() => JSON.stringify(originalEvent(evt), null, 2), [evt])
-  const copy = () =>
-    navigator.clipboard.writeText(text).then(
-      () => showToast('Copied to clipboard'),
-      () => showToast("Couldn't copy"),
-    )
-
+function DialogHeader({ title, actions }: { title: string; actions?: ReactNode }) {
   return (
-    <>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
-        <Dialog.Title className="text-sm font-semibold">Event source</Dialog.Title>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
-        >
-          <Copy size={12} /> Copy
-        </button>
+    <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+      <Dialog.Title className="text-sm font-semibold">{title}</Dialog.Title>
+      <span className="ml-auto flex items-center gap-1">
+        {actions}
         <Dialog.Close aria-label="Close" className="rounded-md p-1 text-muted hover:bg-hover hover:text-fg">
           <X size={16} />
         </Dialog.Close>
-      </header>
+      </span>
+    </header>
+  )
+}
+
+function CopyJSONButton({ value }: { value: unknown }) {
+  const copy = () =>
+    navigator.clipboard.writeText(JSON.stringify(value, null, 2)).then(
+      () => showToast('Copied to clipboard'),
+      () => showToast("Couldn't copy"),
+    )
+  return (
+    <button type="button" onClick={() => void copy()} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg">
+      <Copy size={12} /> Copy
+    </button>
+  )
+}
+
+function JSONBlock({ value }: { value: unknown }) {
+  const text = useMemo(() => JSON.stringify(value, null, 2), [value])
+  return <pre className="overflow-auto rounded-lg border border-border bg-[var(--code-bg)] p-3 font-mono text-xs leading-relaxed">{text}</pre>
+}
+
+/** Renders message content (formatted text, or a short label for media) without the timeline chrome. */
+function ContentPreview({ content, localContent }: { content: MessageEventContent; localContent?: LocalContent }) {
+  const isMedia = ['m.image', 'm.video', 'm.audio', 'm.file', 'm.sticker'].includes(content.msgtype)
+  if (isMedia) {
+    return (
+      <p className="text-sm text-muted">
+        [{content.msgtype.replace('m.', '')}] {content.filename ?? content.body}
+      </p>
+    )
+  }
+  const html = localContent?.sanitized_html
+  return html ? (
+    <div className="message-body text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }} />
+  ) : (
+    <p className="message-body whitespace-pre-wrap text-sm">{typeof content.body === 'string' ? content.body : ''}</p>
+  )
+}
+
+function SourceView({ evt }: { evt: TimelineEvent }) {
+  const source = useMemo(() => originalEvent(evt), [evt])
+  return (
+    <>
+      <DialogHeader title="Event source" actions={<CopyJSONButton value={source} />} />
       <div className="flex min-h-0 flex-col gap-2 overflow-auto p-4">
         <p className="text-xs text-muted">
           The event as delivered by gomuks{evt.original ? ', with the decrypted content in decrypted and decrypted_type' : ''}.
         </p>
-        <pre className="overflow-auto rounded-lg border border-border bg-[var(--code-bg)] p-3 font-mono text-xs leading-relaxed">{text}</pre>
+        <JSONBlock value={source} />
+      </div>
+    </>
+  )
+}
+
+type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ok'; value: T }
+
+function OriginalView({ evt }: { evt: TimelineEvent }) {
+  const [state, setState] = useState<Loadable<TimelineEvent>>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    client.getEvent(evt.room_id, evt.event_id, true).then(
+      raw => !cancelled && setState({ status: 'ok', value: normalizeEvent(raw) }),
+      err => !cancelled && setState({ status: 'error', message: errorText(err) }),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [evt.room_id, evt.event_id])
+
+  return (
+    <>
+      <DialogHeader title="Original message" actions={state.status === 'ok' && <CopyJSONButton value={originalEvent(state.value)} />} />
+      <div className="flex min-h-0 flex-col gap-3 overflow-auto p-4">
+        {state.status === 'loading' && (
+          <div className="flex justify-center py-8 text-muted">
+            <Spinner />
+          </div>
+        )}
+        {state.status === 'error' && (
+          <div className="flex flex-col gap-1.5 text-sm">
+            <p>The homeserver didn't return the original content.</p>
+            <p className="text-xs text-muted">
+              Deleted messages can usually only be viewed by room moderators, and only if the homeserver supports it.
+            </p>
+            <p className="font-mono text-xs text-muted">{state.message}</p>
+          </div>
+        )}
+        {state.status === 'ok' && (
+          <>
+            <div className="rounded-lg border border-border bg-bg/60 p-3">
+              <p className="mb-1.5 text-xs text-muted">Sent {formatFull(state.value.timestamp)}</p>
+              <ContentPreview content={state.value.content as unknown as MessageEventContent} localContent={state.value.local_content} />
+            </div>
+            <details>
+              <summary className="cursor-pointer text-xs font-medium text-muted hover:text-fg">Event JSON</summary>
+              <div className="mt-2">
+                <JSONBlock value={originalEvent(state.value)} />
+              </div>
+            </details>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+interface Version {
+  label: string
+  timestamp: number
+  content: MessageEventContent
+  localContent?: LocalContent
+}
+
+function EditHistoryView({ evt }: { evt: TimelineEvent }) {
+  const [state, setState] = useState<Loadable<Version[]>>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    client.getRelatedEvents(evt.room_id, evt.event_id, 'm.replace').then(
+      related => {
+        if (cancelled) return
+        // Only the original sender's edits count.
+        const edits = related
+          .map(normalizeEvent)
+          .filter(edit => edit.sender === evt.sender && !edit.redacted_by)
+          .sort((a, b) => a.timestamp - b.timestamp)
+        setState({
+          status: 'ok',
+          value: [
+            { label: 'Original', timestamp: evt.timestamp, content: evt.content as unknown as MessageEventContent, localContent: evt.local_content },
+            ...edits.map((edit, i) => ({
+              label: `Edit ${i + 1}`,
+              timestamp: edit.timestamp,
+              content: (edit.content['m.new_content'] ?? edit.content) as unknown as MessageEventContent,
+              localContent: edit.local_content,
+            })),
+          ],
+        })
+      },
+      err => !cancelled && setState({ status: 'error', message: errorText(err) }),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [evt])
+
+  return (
+    <>
+      <DialogHeader title="Edit history" />
+      <div className="flex min-h-0 flex-col gap-2 overflow-auto p-4">
+        {state.status === 'loading' && (
+          <div className="flex justify-center py-8 text-muted">
+            <Spinner />
+          </div>
+        )}
+        {state.status === 'error' && <p className="text-sm text-danger">Couldn't load the edit history: {state.message}</p>}
+        {state.status === 'ok' &&
+          state.value.map((version, i) => {
+            const current = i === state.value.length - 1
+            return (
+              <div key={`${version.label}-${version.timestamp}`} className={cn('rounded-lg border p-3', current ? 'border-accent/60 bg-accent/5' : 'border-border')}>
+                <div className="mb-1.5 flex items-center gap-2 text-xs">
+                  <span className="font-semibold">{version.label}</span>
+                  {current && <span className="rounded-full bg-accent px-1.5 py-px text-[10px] font-medium text-accent-fg">Current</span>}
+                  <time className="ml-auto text-muted" title={formatFull(version.timestamp)}>
+                    {formatFull(version.timestamp)}
+                  </time>
+                </div>
+                <ContentPreview content={version.content} localContent={version.localContent} />
+              </div>
+            )
+          })}
+      </div>
+    </>
+  )
+}
+
+function ReactorRow({ roomID, userID, emoji, timestamp }: { roomID: RoomID; userID: UserID; emoji?: string; timestamp: number }) {
+  const member = useMember(roomID, userID)
+  const name = displayNameOf(userID, member)
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => {
+          closeDialog()
+          openProfile(userID)
+        }}
+        title={formatFull(timestamp)}
+        className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-hover"
+      >
+        <Avatar mxc={member?.avatar_url} id={userID} name={name} size={32} />
+        <span className="min-w-0 flex-1 leading-snug">
+          <span className="block truncate text-sm font-medium">{name}</span>
+          <span className="block truncate text-xs text-muted">{userID}</span>
+        </span>
+        {emoji && <span className="shrink-0 text-lg">{emoji}</span>}
+      </button>
+    </li>
+  )
+}
+
+function ReactionsView({ evt }: { evt: TimelineEvent }) {
+  const details = useReactionDetails(s => s.entries[evt.event_id])
+  const [tab, setTab] = useState<string>('all')
+  const signature = reactionSignature(evt)
+  const byKey = details?.signature === signature ? details.byKey : undefined
+
+  useEffect(() => {
+    loadReactionDetails(evt.room_id, evt).catch(() => {})
+  }, [evt])
+
+  const keys = byKey ? Object.keys(byKey).sort((a, b) => byKey[b].length - byKey[a].length) : []
+  const rows = byKey
+    ? tab === 'all'
+      ? keys.flatMap(key => byKey[key].map(reactor => ({ ...reactor, key }))).sort((a, b) => a.timestamp - b.timestamp)
+      : (byKey[tab] ?? []).map(reactor => ({ ...reactor, key: tab }))
+    : []
+  const total = keys.reduce((sum, key) => sum + (byKey?.[key].length ?? 0), 0)
+
+  const tabClass = (active: boolean) =>
+    cn('flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors', active ? 'bg-accent text-accent-fg' : 'bg-surface-2 text-muted hover:text-fg')
+
+  return (
+    <>
+      <DialogHeader title="Reactions" />
+      {byKey && (
+        <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border px-4 py-2.5">
+          <button type="button" className={tabClass(tab === 'all')} onClick={() => setTab('all')}>
+            All <span className="tabular-nums">{total}</span>
+          </button>
+          {keys.map(key => (
+            <button key={key} type="button" className={tabClass(tab === key)} onClick={() => setTab(key)}>
+              <span className="text-sm leading-none">{key}</span> <span className="tabular-nums">{byKey[key].length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="min-h-0 overflow-auto p-2">
+        {!byKey && !details?.error && (
+          <div className="flex justify-center py-8 text-muted">
+            <Spinner />
+          </div>
+        )}
+        {details?.error && !byKey && <p className="p-2 text-sm text-danger">Couldn't load reactions: {details.error}</p>}
+        <ul>
+          {rows.map(row => (
+            <ReactorRow key={row.eventID} roomID={evt.room_id} userID={row.userID} emoji={tab === 'all' ? row.key : undefined} timestamp={row.timestamp} />
+          ))}
+        </ul>
       </div>
     </>
   )
@@ -75,7 +330,7 @@ function DeleteConfirm({ evt }: { evt: TimelineEvent }) {
       await client.redactEvent(evt.room_id, evt.event_id, reason.trim())
       closeDialog()
     } catch (err) {
-      showToast(`Couldn't delete: ${err instanceof Error ? err.message : String(err)}`)
+      showToast(`Couldn't delete: ${errorText(err)}`)
       setBusy(false)
     }
   }

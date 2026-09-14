@@ -23,8 +23,12 @@ const RIGHT_PANEL_MIN_WIDTH = 280
 const RIGHT_PANEL_MAX_WIDTH = 720
 
 export interface MessageDialog {
-  type: 'source' | 'delete'
+  type: 'source' | 'delete' | 'original' | 'edits' | 'reactions'
   rowid: EventRowID
+}
+
+export function openMessageDialog(type: MessageDialog['type'], rowid: EventRowID) {
+  useUI.setState({ dialog: { type, rowid } })
 }
 
 interface UIState {

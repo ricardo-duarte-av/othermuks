@@ -25,6 +25,14 @@ export function isPendingEvent(evt: TimelineEvent): boolean {
   return !evt.event_id || evt.event_id.startsWith('~')
 }
 
+/**
+ * gomuks marks every local echo with send_error "not sent" and keeps that placeholder even after a
+ * successful send_complete; only other values are real failures (same rule as gomuks web).
+ */
+export function isFailedSend(evt: TimelineEvent): boolean {
+  return !!evt.send_error && evt.send_error !== 'not sent'
+}
+
 export function localpart(userID: UserID): string {
   return userID.replace(/^@/, '').split(':')[0]
 }

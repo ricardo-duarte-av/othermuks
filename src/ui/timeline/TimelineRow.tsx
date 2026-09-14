@@ -1,9 +1,11 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import * as Tooltip from '@radix-ui/react-tooltip'
 import {
   Code,
   Copy,
   Ellipsis,
   FileText,
+  History,
   Link2,
   LockKeyhole,
   MessagesSquare,
@@ -11,26 +13,31 @@ import {
   Reply,
   SmilePlus,
   Trash2,
+  Undo2,
+  Users,
 } from 'lucide-react'
 import { memo, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { client } from '@/api/client'
 import { mediaURL, userColorIndex } from '@/api/media'
 import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
-import { formatBytes, formatDay, formatFull, formatTime } from '@/lib/format'
+import { formatBytes, formatDay, formatFull, formatNames, formatTime } from '@/lib/format'
 import { fetchEvent, selectOwnUserID, useChat } from '@/store/chat'
 import {
   describeStateEvent,
   displayContent,
   displayNameOf,
   fallbackDisplayName,
+  isFailedSend,
   isMessageLike,
   isPendingEvent,
   type TimelineEvent,
 } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { jumpToEvent } from '@/store/navigation'
-import { openLightbox, openProfile, openThread, showToast, useUI } from '@/store/ui'
+import { loadReactionDetails, reactionSignature, useReactionDetails, type Reactor } from '@/store/reactions'
+import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
@@ -74,6 +81,7 @@ function DaySeparator({ ts }: { ts: number }) {
 }
 
 const userColor = (userID: string) => `var(--user-color-${userColorIndex(userID)})`
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 function StateRow({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
   const sender = useMember(roomID, evt.sender)
@@ -111,7 +119,8 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
   const relation = evt.content['m.relates_to'] as RelatesTo | undefined
   // Thread replies carry a fallback reply to the previous thread message; only explicit replies get a preview.
   const replyTo = relation?.is_falling_back ? undefined : relation?.['m.in_reply_to']?.event_id
-  const pending = isPendingEvent(evt) && !evt.send_error
+  const failed = isFailedSend(evt)
+  const pending = isPendingEvent(evt) && !failed
 
   return (
     <div
@@ -119,7 +128,8 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
       data-rowid={evt.rowid}
       data-own={own || undefined}
       data-pending={pending || undefined}
-      data-failed={evt.send_error ? true : undefined}
+      data-failed={failed || undefined}
+      data-redacted={evt.redacted_by ? true : undefined}
       data-highlight={highlighted || undefined}
     >
       <div className="flex w-10 shrink-0 justify-end">
@@ -150,16 +160,48 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
           </div>
         )}
         {replyTo && <ReplyPreview roomID={roomID} eventID={replyTo} />}
-        <MessageContent evt={evt} content={content} localContent={localContent} senderName={name} />
-        {lastEdit && !evt.redacted_by && <span className="edited-marker text-[11px] text-muted">(edited)</span>}
-        {evt.send_error && <p className="text-xs text-danger">Failed to send: {evt.send_error}</p>}
-        {evt.reactions && !evt.redacted_by && <Reactions roomID={roomID} evt={evt} />}
+        <MessageContent roomID={roomID} evt={evt} content={content} localContent={localContent} senderName={name} />
+        {lastEdit && !evt.redacted_by && (
+          <button
+            type="button"
+            onClick={() => openMessageDialog('edits', evt.rowid)}
+            title="Show edit history"
+            className="edited-marker text-[11px] text-muted hover:text-fg hover:underline"
+          >
+            (edited)
+          </button>
+        )}
+        {failed && <SendFailure evt={evt} />}
+        {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
         {!threadRoot && !isPendingEvent(evt) && <ThreadSummary eventID={evt.event_id} />}
       </div>
-      {!isPendingEvent(evt) && !evt.redacted_by && (
-        <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} />
-      )}
+      {!isPendingEvent(evt) && <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} />}
     </div>
+  )
+}
+
+function SendFailure({ evt }: { evt: TimelineEvent }) {
+  const [retrying, setRetrying] = useState(false)
+  const retry = async () => {
+    if (!evt.transaction_id) return
+    setRetrying(true)
+    try {
+      await client.resendEvent(evt.transaction_id)
+    } catch (err) {
+      showToast(`Couldn't resend: ${errorText(err)}`)
+    } finally {
+      setRetrying(false)
+    }
+  }
+  return (
+    <p className="send-failure flex flex-wrap items-center gap-x-2 text-xs text-danger">
+      <span>Failed to send: {evt.send_error}</span>
+      {evt.transaction_id && (
+        <button type="button" onClick={() => void retry()} disabled={retrying} className="font-medium underline disabled:opacity-60">
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      )}
+    </p>
   )
 }
 
@@ -192,8 +234,8 @@ interface ContentProps {
   senderName: string
 }
 
-function MessageContent({ evt, content, localContent, senderName }: ContentProps) {
-  if (evt.redacted_by) return <p className="message-body text-sm italic text-muted">Message deleted</p>
+function MessageContent({ roomID, evt, content, localContent, senderName }: ContentProps & { roomID: RoomID }) {
+  if (evt.redacted_by) return <RedactedNotice roomID={roomID} evt={evt} />
   if (evt.type === 'm.room.encrypted') {
     return (
       <p className="message-body flex items-center gap-1.5 text-sm italic text-muted">
@@ -220,6 +262,45 @@ function MessageContent({ evt, content, localContent, senderName }: ContentProps
     default:
       return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} />
   }
+}
+
+/** "Message deleted", naming who deleted it (when not the sender) and why, from the redaction event. */
+function RedactedNotice({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+  const redactedBy = evt.redacted_by
+  const redaction = useChat(s => {
+    const rowid = redactedBy ? s.eventIDs[redactedBy] : undefined
+    return rowid === undefined ? undefined : s.events[rowid]
+  })
+  const redacter = useMember(roomID, redaction?.sender)
+
+  useEffect(() => {
+    if (redactedBy && !redaction) void fetchEvent(roomID, redactedBy)
+  }, [roomID, redactedBy, redaction])
+
+  const reason = typeof redaction?.content.reason === 'string' ? redaction.content.reason.trim() : ''
+  const by = redaction && redaction.sender !== evt.sender ? displayNameOf(redaction.sender, redacter) : undefined
+
+  return (
+    <p className="message-body redacted-notice flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+      <Trash2 size={13} className="shrink-0" />
+      <span className="italic">Message deleted</span>
+      {by && (
+        <span title={redaction?.sender}>
+          by <span className="font-medium text-fg/80">{by}</span>
+        </span>
+      )}
+      {redaction && (
+        <time className="text-xs" title={formatFull(redaction.timestamp)}>
+          · {formatTime(redaction.timestamp)}
+        </time>
+      )}
+      {reason && (
+        <span className="w-full text-[13px]">
+          Reason: <span className="text-fg/80">{reason}</span>
+        </span>
+      )}
+    </p>
+  )
 }
 
 interface TextBodyProps extends Omit<ContentProps, 'evt'> {
@@ -429,33 +510,100 @@ function ThreadSummary({ eventID }: { eventID: EventID }) {
   )
 }
 
+const TOOLTIP_NAME_LIMIT = 12
+
 function Reactions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+  const ownUserID = useChat(selectOwnUserID)
+  const details = useReactionDetails(s => s.entries[evt.event_id])
+  const byKey = details?.signature === reactionSignature(evt) ? details.byKey : undefined
   const entries = Object.entries(evt.reactions ?? {})
     .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
   if (!entries.length) return null
+
+  // Clicking your own reaction removes it; otherwise it adds one.
+  const toggle = async (key: string) => {
+    try {
+      const reactors = isPendingEvent(evt) ? undefined : (await loadReactionDetails(roomID, evt))[key]
+      const mine = reactors?.find(reactor => reactor.userID === ownUserID)
+      if (mine) await client.redactEvent(roomID, mine.eventID)
+      else await client.sendReaction(roomID, evt.event_id, key)
+    } catch (err) {
+      showToast(`Couldn't update the reaction: ${errorText(err)}`)
+    }
+  }
+
   return (
     <div className="reactions mt-1 flex flex-wrap gap-1">
       {entries.map(([key, count]) => (
-        <button
+        <ReactionChip
           key={key}
-          type="button"
-          title={key}
-          onClick={() => react(roomID, evt.event_id, key)}
-          className="reaction-chip flex h-6 items-center gap-1 rounded-full px-2 text-xs transition hover:brightness-110"
-        >
-          {key.startsWith('mxc://') ? <img src={mediaURL(key)} alt={key} className="size-4 object-contain" /> : <span>{key}</span>}
-          <span className="tabular-nums text-muted">{count}</span>
-        </button>
+          roomID={roomID}
+          evt={evt}
+          reactionKey={key}
+          count={count}
+          reactors={byKey?.[key]}
+          own={!!byKey?.[key]?.some(reactor => reactor.userID === ownUserID)}
+          onToggle={() => void toggle(key)}
+        />
       ))}
     </div>
   )
 }
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+interface ReactionChipProps {
+  roomID: RoomID
+  evt: TimelineEvent
+  reactionKey: string
+  count: number
+  reactors?: Reactor[]
+  own: boolean
+  onToggle: () => void
+}
 
-function react(roomID: RoomID, eventID: EventID, key: string) {
-  client.sendReaction(roomID, eventID, key).catch(err => showToast(`Couldn't react: ${errorText(err)}`))
+const NO_NAMES: string[] = []
+
+function ReactionChip({ roomID, evt, reactionKey, count, reactors, own, onToggle }: ReactionChipProps) {
+  const names = useChat(
+    useShallow(s => {
+      if (!reactors) return NO_NAMES
+      const room = s.rooms[roomID]
+      return reactors.slice(0, TOOLTIP_NAME_LIMIT).map(({ userID }) => {
+        const rowid = room?.state['m.room.member']?.[userID]
+        return displayNameOf(userID, rowid === undefined ? undefined : (s.events[rowid]?.content as { displayname?: unknown }))
+      })
+    }),
+  )
+  const extra = reactors ? reactors.length - names.length : 0
+  const label = reactionKey.startsWith('mxc://') ? 'this emoji' : reactionKey
+
+  return (
+    <Tooltip.Root delayDuration={250} onOpenChange={open => open && loadReactionDetails(roomID, evt).catch(() => {})}>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          onClick={onToggle}
+          data-own={own || undefined}
+          aria-label={`${reactionKey} ${count}${own ? ', including you' : ''}`}
+          className="reaction-chip flex h-6 items-center gap-1 rounded-full px-2 text-xs transition hover:brightness-110"
+        >
+          {reactionKey.startsWith('mxc://') ? <img src={mediaURL(reactionKey)} alt="" className="size-4 object-contain" /> : <span>{reactionKey}</span>}
+          <span className="tabular-nums text-muted">{count}</span>
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content
+          side="top"
+          sideOffset={6}
+          className="tooltip z-50 max-w-72 rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-fg shadow-lg"
+        >
+          {reactors
+            ? `${formatNames(extra > 0 ? [...names, `${extra} more`] : names)} reacted with ${label}`
+            : 'Loading…'}
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  )
 }
 
 async function copyToClipboard(text: string, success: string) {
@@ -465,6 +613,10 @@ async function copyToClipboard(text: string, success: string) {
   } catch (err) {
     showToast(`Couldn't copy: ${errorText(err)}`)
   }
+}
+
+function react(roomID: RoomID, eventID: EventID, key: string) {
+  client.sendReaction(roomID, eventID, key).catch(err => showToast(`Couldn't react: ${errorText(err)}`))
 }
 
 function ActionButton({ label, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
@@ -496,14 +648,24 @@ function MenuItem({ icon, onSelect, danger, children }: { icon: ReactNode; onSel
   )
 }
 
-function MessageActions({ roomID, evt, own, threadRoot }: { roomID: RoomID; evt: TimelineEvent; own: boolean; threadRoot?: EventID }) {
+interface MessageActionsProps {
+  roomID: RoomID
+  evt: TimelineEvent
+  own: boolean
+  threadRoot?: EventID
+  hasEdits: boolean
+}
+
+function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActionsProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const redacted = !!evt.redacted_by
   const msgtype = evt.content.msgtype as string | undefined
-  const editable = own && evt.type === 'm.room.message' && EDITABLE_MSGTYPES.has(msgtype ?? '')
+  const editable = own && !redacted && evt.type === 'm.room.message' && EDITABLE_MSGTYPES.has(msgtype ?? '')
+  const hasReactions = Object.values(evt.reactions ?? {}).some(count => count > 0)
   const scope = threadRoot ?? null
   // Dialogs open after the menu has closed, so focus handling doesn't fight between them.
-  const openDialog = (type: 'source' | 'delete') => requestAnimationFrame(() => useUI.setState({ dialog: { type, rowid: evt.rowid } }))
+  const openDialog = (type: Parameters<typeof openMessageDialog>[0]) => requestAnimationFrame(() => openMessageDialog(type, evt.rowid))
 
   const copyText = () => {
     const { events } = useChat.getState()
@@ -555,20 +717,35 @@ function MessageActions({ roomID, evt, own, threadRoot }: { roomID: RoomID; evt:
             align="end"
             sideOffset={6}
             collisionPadding={12}
-            className="message-menu z-50 min-w-48 rounded-lg border border-border bg-surface p-1 text-fg shadow-xl"
+            className="message-menu z-50 min-w-52 rounded-lg border border-border bg-surface p-1 text-fg shadow-xl"
           >
             <MenuItem icon={<Link2 size={15} />} onSelect={() => void copyToClipboard(`https://matrix.to/#/${roomID}/${evt.event_id}`, 'Link copied')}>
               Share link
             </MenuItem>
-            {typeof evt.content.body === 'string' && (
+            {!redacted && typeof evt.content.body === 'string' && (
               <MenuItem icon={<Copy size={15} />} onSelect={copyText}>
                 Copy text
+              </MenuItem>
+            )}
+            {hasReactions && (
+              <MenuItem icon={<Users size={15} />} onSelect={() => openDialog('reactions')}>
+                Reactions
+              </MenuItem>
+            )}
+            {hasEdits && !redacted && (
+              <MenuItem icon={<History size={15} />} onSelect={() => openDialog('edits')}>
+                Edit history
+              </MenuItem>
+            )}
+            {redacted && (
+              <MenuItem icon={<Undo2 size={15} />} onSelect={() => openDialog('original')}>
+                View original
               </MenuItem>
             )}
             <MenuItem icon={<Code size={15} />} onSelect={() => openDialog('source')}>
               View source
             </MenuItem>
-            {own && (
+            {own && !redacted && (
               <>
                 <DropdownMenu.Separator className="my-1 h-px bg-border" />
                 <MenuItem icon={<Trash2 size={15} />} onSelect={() => openDialog('delete')} danger>

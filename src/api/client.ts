@@ -406,8 +406,18 @@ export class GomuksClient {
     return this.exec<RawDBEvent[]>('get_room_state', { room_id, include_members, fetch_members, refetch: false })
   }
 
-  getEvent(room_id: RoomID, event_id: EventID) {
-    return this.exec<RawDBEvent>('get_event', { room_id, event_id })
+  /** With unredact, asks the homeserver for a deleted event's original content (usually moderators only). */
+  getEvent(room_id: RoomID, event_id: EventID, unredact = false) {
+    return this.exec<RawDBEvent>('get_event', { room_id, event_id, unredact })
+  }
+
+  /** Events relating to an event, e.g. its edits (m.replace) or reactions (m.annotation + m.reaction). */
+  getRelatedEvents(room_id: RoomID, event_id: EventID, relation_type: string, event_type?: string) {
+    return this.exec<RawDBEvent[]>('get_related_events', { room_id, event_id, relation_type, event_type })
+  }
+
+  resendEvent(transaction_id: string) {
+    return this.exec<RawDBEvent>('resend_event', { transaction_id })
   }
 
   markRead(room_id: RoomID, event_id: EventID, receipt_type = 'm.read') {
