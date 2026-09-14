@@ -10,6 +10,7 @@ import type {
   DBInvitedRoom,
   DBReceipt,
   DBRoom,
+  DBRoomAccountData,
   DBSpaceEdge,
   EventID,
   EventRowID,
@@ -40,6 +41,8 @@ export interface RoomData {
   /** Local echoes that haven't appeared in the timeline yet. */
   pending: EventRowID[]
   state: Record<EventType, Record<string, EventRowID>>
+  /** Room account data, e.g. m.tag (favourite/low priority) and m.marked_unread. */
+  accountData: Record<EventType, DBRoomAccountData>
   /** One receipt per user: the furthest event in the timeline they've read. */
   receipts: Record<UserID, RoomReceipt>
   typing: UserID[]
@@ -67,6 +70,8 @@ interface ChatState {
   invites: DBInvitedRoom[]
   accountData: Record<EventType, DBAccountData>
 }
+
+export type ChatSnapshot = ChatState
 
 export const useChat = create<ChatState>()(() => ({
   connection: { connected: false, reconnecting: true, error: null },
@@ -97,6 +102,7 @@ function newRoom(meta: DBRoom): RoomData {
     timeline: [],
     pending: [],
     state: {},
+    accountData: {},
     receipts: {},
     typing: [],
     hasMore: true,
@@ -258,6 +264,9 @@ function applySync(data: SyncCompleteData) {
       const state = { ...room.state }
       for (const [type, keys] of Object.entries(sync.state)) state[type] = { ...state[type], ...keys }
       room.state = state
+    }
+    if (sync.account_data && Object.keys(sync.account_data).length) {
+      room.accountData = { ...room.accountData, ...sync.account_data }
     }
     room.receipts = mergeReceipts(room, sync.receipts, tables.eventIDs)
     rooms[roomID] = room
@@ -534,12 +543,31 @@ export function findLastOwnEditable(roomID: RoomID, threadRoot?: EventID): Timel
   return undefined
 }
 
+/**
+ * The newest event in the room, of any type. A read receipt must point at this one: pointing it at the
+ * newest *visible* message would leave later reactions or redactions unread, and the room could never
+ * be marked read. Falls back to the preview event when no timeline is loaded (same as gomuks web).
+ */
+export function latestReadEvent(roomID: RoomID): TimelineEvent | undefined {
+  const s = get()
+  const room = s.rooms[roomID]
+  if (!room) return undefined
+  for (let i = room.timeline.length - 1; i >= 0; i--) {
+    const evt = s.events[room.timeline[i].event_rowid]
+    if (evt && !isPendingEvent(evt)) return evt
+  }
+  const preview = s.events[room.meta.preview_event_rowid]
+  return preview && !isPendingEvent(preview) ? preview : undefined
+}
+
 const lastMarkedRead = new Map<RoomID, EventID>()
 
-export function markRoomRead(roomID: RoomID, evt: TimelineEvent) {
+/** Sends a read receipt for evt, unless the room has nothing unread (or force is set). */
+export function markRoomRead(roomID: RoomID, evt: TimelineEvent, force = false) {
   const meta = get().rooms[roomID]?.meta
   if (!meta || isPendingEvent(evt) || lastMarkedRead.get(roomID) === evt.event_id) return
-  if (!meta.unread_messages && !meta.unread_notifications && !meta.unread_highlights && !meta.marked_unread) return
+  const unread = meta.unread_messages || meta.unread_notifications || meta.unread_highlights || meta.marked_unread
+  if (!unread && !force) return
   lastMarkedRead.set(roomID, evt.event_id)
   client.markRead(roomID, evt.event_id).catch(err => {
     console.error('Failed to mark read', roomID, err)

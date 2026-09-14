@@ -4,8 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
-import { loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
-import { isMessageLike, isPendingEvent, isRenderable, type TimelineEvent } from '@/store/events'
+import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
+import { isMessageLike, isRenderable, type TimelineEvent } from '@/store/events'
 import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
 import { ENTER_ANIMATION_WINDOW, TimelineRow } from './TimelineRow'
@@ -125,16 +125,11 @@ function useReceiptLayout(roomID: RoomID): Map<EventRowID, UserID[]> {
   }, [signature])
 }
 
-function markLatestRead(roomID: RoomID, rowids: EventRowID[]) {
+/** Marks the room read at its newest event of any type (see latestReadEvent), if the window has focus. */
+function markLatestRead(roomID: RoomID) {
   if (!document.hasFocus()) return
-  const { events } = useChat.getState()
-  for (let i = rowids.length - 1; i >= 0; i--) {
-    const evt = events[rowids[i]]
-    if (evt && !isPendingEvent(evt)) {
-      markRoomRead(roomID, evt)
-      return
-    }
-  }
+  const evt = latestReadEvent(roomID)
+  if (evt) markRoomRead(roomID, evt)
 }
 
 export function Timeline({ roomID }: { roomID: RoomID }) {
@@ -190,7 +185,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     const first = virtualizer.getVirtualItems().find(item => item.end > el.scrollTop)
     anchor.current = first ? { rowid: first.key as EventRowID, offset: first.start - el.scrollTop } : null
     if (el.scrollTop < LOAD_THRESHOLD) void loadOlder(roomID)
-    if (atBottom.current && !wasAtBottom) markLatestRead(roomID, rowids)
+    if (atBottom.current && !wasAtBottom) markLatestRead(roomID)
   }
 
   // Stay pinned to the newest message, or keep the same message in place when history is prepended.
@@ -220,13 +215,13 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   }, [highlight])
 
   useEffect(() => {
-    if (atBottom.current) markLatestRead(roomID, rowids)
+    if (atBottom.current) markLatestRead(roomID)
     const onFocus = () => {
-      if (atBottom.current) markLatestRead(roomID, rowids)
+      if (atBottom.current) markLatestRead(roomID)
     }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [roomID, rowids])
+  }, [roomID, rowids, timelineLength])
 
   // Backfill until the viewport is filled or history runs out.
   useEffect(() => {

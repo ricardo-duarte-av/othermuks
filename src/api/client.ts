@@ -427,6 +427,20 @@ export class GomuksClient {
   setTyping(room_id: RoomID, timeout: number) {
     return this.exec<void>('set_typing', { room_id, timeout })
   }
+
+  /** Global account data, or room account data when room_id is given (e.g. m.tag, m.marked_unread). */
+  setAccountData(type: string, content: unknown, room_id?: RoomID) {
+    return this.exec<void>('set_account_data', { type, content, room_id })
+  }
+
+  /** Mutes or unmutes a room via its room push rule. */
+  muteRoom(room_id: RoomID, muted: boolean) {
+    return this.exec<boolean>('mute_room', { room_id, muted })
+  }
+
+  leaveRoom(room_id: RoomID, reason?: string) {
+    return this.exec<Record<string, never>>('leave_room', { room_id, reason })
+  }
 }
 
 export const client = new GomuksClient()
