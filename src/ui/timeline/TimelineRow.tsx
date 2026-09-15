@@ -551,7 +551,7 @@ function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; eventID: Eve
 
   if (!evt) {
     return (
-      <div className="reply-preview my-1 rounded-md border-l-2 border-border bg-surface/60 px-2.5 py-1 text-[13px] text-muted">
+      <div className="reply-preview my-1 rounded-md border-l-2 border-border bg-[var(--reply-bg)] px-2.5 py-1 text-[13px] text-muted">
         Loading reply…
       </div>
     )
@@ -597,7 +597,7 @@ function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; eventID: Eve
   return (
     <div
       {...interactive}
-      className="reply-preview my-1 flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border-l-2 bg-surface/60 py-1 pl-2.5 pr-3 text-[13px] outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent"
+      className="reply-preview my-1 flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border-l-2 bg-[var(--reply-bg)] py-1 pl-2.5 pr-3 text-[13px] outline-none transition-colors hover:bg-[var(--reply-hover-bg)] focus-visible:ring-2 focus-visible:ring-accent"
       style={{ borderColor: color }}
     >
       <span className="flex min-w-0 items-center gap-1.5" title={evt.sender}>

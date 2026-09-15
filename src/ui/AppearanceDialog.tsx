@@ -240,7 +240,7 @@ const REFERENCE: [selector: string, description: string][] = [
   ['.chat-message', 'Message row. [data-own], [data-pending], [data-highlight]'],
   ['.chat-bubble', 'Message content. --bubble-bg, --bubble-own-bg, --bubble-radius'],
   ['.message-body', 'Formatted message text'],
-  ['.reply-preview', 'Quoted reply above a message'],
+  ['.reply-preview', 'Quoted reply above a message. --reply-bg, --reply-hover-bg'],
   ['.user-avatar', 'Every avatar. --avatar-radius'],
   ['.mention-pill', 'User and room mentions. --pill-bg, --pill-text'],
   ['.reaction-chip', 'Reactions. --reaction-bg, --reaction-own-bg'],

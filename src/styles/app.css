@@ -73,6 +73,9 @@
   --bubble-own-bg: transparent;
   --bubble-radius: var(--radius);
   --message-hover-bg: oklch(from var(--surface) l c h / 0.6);
+  /* Quoted replies use the raised surface so they stay distinct from a hovered message row. */
+  --reply-bg: oklch(from var(--surface-2) l c h / 0.55);
+  --reply-hover-bg: var(--surface-2);
   --pill-bg: oklch(from var(--accent) l c h / 0.18);
   --pill-text: var(--accent);
   --reaction-bg: var(--surface-2);
