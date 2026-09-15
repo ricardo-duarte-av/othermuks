@@ -12,6 +12,7 @@ import { Kbd, Spinner } from '@/ui/primitives'
 import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
 import { RightPanel, type RightPanelKind } from '@/ui/room/RightPanel'
 import { RoomView } from '@/ui/room/RoomView'
+import { installMatrixLinkHandler } from '@/ui/matrixLinks'
 import { SettingsDialog } from '@/ui/settings/SettingsDialog'
 import { PermissionDialog } from '@/ui/widget/PermissionDialog'
 import { Sidebar } from '@/ui/sidebar/Sidebar'
@@ -118,6 +119,7 @@ function EmptyState() {
 
 export function Shell() {
   useGlobalShortcuts()
+  useEffect(installMatrixLinkHandler, [])
   const activeRoomID = useUI(s => s.activeRoomID)
   const drawerOpen = useUI(s => s.drawerOpen)
   const widgetView = useUI(s => s.widgetView)

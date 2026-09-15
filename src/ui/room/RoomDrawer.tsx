@@ -8,6 +8,7 @@ import { displayNameOf, fallbackDisplayName } from '@/store/events'
 import { useJoinedMembers, useMember, useRoomPowerContext } from '@/store/hooks'
 import { ROLE_GROUP_LABELS, roleForLevel, userPowerLevel, type Role } from '@/store/power'
 import { openLightbox, openProfile, useUI } from '@/store/ui'
+import { LinkifiedText } from '@/ui/LinkifiedText'
 import { Avatar, IconButton, Spinner } from '@/ui/primitives'
 
 const MEMBER_RENDER_LIMIT = 300
@@ -127,7 +128,11 @@ export function RoomDetails({ roomID }: { roomID: RoomID }) {
         )}
         <h3 className="mt-1 text-base font-semibold">{meta.name ?? roomID}</h3>
         {meta.canonical_alias && <p className="text-xs text-muted">{meta.canonical_alias}</p>}
-        {meta.topic && <p className="line-clamp-4 whitespace-pre-wrap text-sm text-muted">{meta.topic}</p>}
+        {meta.topic && (
+          <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm text-muted">
+            <LinkifiedText text={meta.topic} />
+          </p>
+        )}
         <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted">
           {meta.encryption_event ? <Lock size={12} /> : <LockOpen size={12} />}
           {meta.encryption_event ? 'End-to-end encrypted' : 'Not encrypted'}

@@ -11,6 +11,7 @@ import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePinnedEvents } from '@/store/pins'
 import { closePins, closeWidgets, openPins, openSettings, openWidget, openWidgetList, useUI } from '@/store/ui'
 import { activeCallMembers, CALL_ROOM_TYPE, CALL_WIDGET_ID } from '@/store/widgets'
+import { LinkifiedText } from '@/ui/LinkifiedText'
 import { Avatar, IconButton } from '@/ui/primitives'
 import { ContextTimeline } from '@/ui/timeline/ContextTimeline'
 import { Timeline } from '@/ui/timeline/Timeline'
@@ -31,7 +32,11 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
           {meta.name ?? roomID}
           {meta.encryption_event && <Lock size={12} className="shrink-0 text-muted" aria-label="Encrypted" />}
         </h1>
-        {meta.topic && <p className="truncate text-xs text-muted">{meta.topic}</p>}
+        {meta.topic && (
+          <p className="truncate text-xs text-muted" title={meta.topic}>
+            <LinkifiedText text={meta.topic} />
+          </p>
+        )}
       </div>
       <IconButton label="Search" shortcut="Ctrl K" onClick={() => useUI.setState({ paletteOpen: true })}>
         <Search size={17} />
