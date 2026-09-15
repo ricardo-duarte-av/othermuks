@@ -35,7 +35,7 @@ export const ReadReceipts = memo(function ReadReceipts({ roomID, readers }: { ro
   const hidden = readers.length - shown.length
 
   return (
-    <div className="read-receipts flex items-center justify-end gap-1 pt-0.5" title={`Read by ${formatNames(names)}`} aria-label={`Read by ${formatNames(names)}`}>
+    <div className="read-receipts flex shrink-0 items-center justify-end gap-1"title={`Read by ${formatNames(names)}`} aria-label={`Read by ${formatNames(names)}`}>
       {hidden > 0 && <span className="text-[10px] tabular-nums text-muted">+{hidden}</span>}
       <span className="flex -space-x-1">
         {shown.map(userID => (

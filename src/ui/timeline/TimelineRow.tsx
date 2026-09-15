@@ -89,14 +89,9 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
     >
       {newDay && <DaySeparator ts={evt.timestamp} />}
       {isMessageLike(evt) ? (
-        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} threadRoot={threadRoot} />
+        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} threadRoot={threadRoot} readers={readers} />
       ) : (
-        <StateRow roomID={roomID} evt={evt} />
-      )}
-      {readers && readers.length > 0 && (
-        <div className="px-4 pb-0.5">
-          <ReadReceipts roomID={roomID} readers={readers} />
-        </div>
+        <StateRow roomID={roomID} evt={evt} readers={readers} />
       )}
     </motion.div>
   )
@@ -115,7 +110,7 @@ function DaySeparator({ ts }: { ts: number }) {
 const userColor = (userID: string) => `var(--user-color-${userColorIndex(userID)})`
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-function StateRow({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+function StateRow({ roomID, evt, readers }: { roomID: RoomID; evt: TimelineEvent; readers?: UserID[] }) {
   const sender = useMember(roomID, evt.sender)
   const target = useMember(roomID, evt.state_key)
   const senderName = displayNameOf(evt.sender, sender)
@@ -130,6 +125,7 @@ function StateRow({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
       <time title={formatFull(evt.timestamp)} className="invisible shrink-0 tabular-nums group-hover:visible">
         {formatTime(evt.timestamp)}
       </time>
+      {readers && readers.length > 0 && <ReadReceipts roomID={roomID} readers={readers} />}
     </div>
   )
 }
@@ -140,9 +136,10 @@ interface MessageRowProps {
   compact: boolean
   own: boolean
   threadRoot?: EventID
+  readers?: UserID[]
 }
 
-function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) {
+function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageRowProps) {
   const codeWrap = usePreference('code_block_line_wrap', roomID)
   const inlineImages = usePreference('show_inline_images', roomID)
   const maxImageWidth = usePreference('max_image_width', roomID)
@@ -214,6 +211,12 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
         {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
         {!threadRoot && !isPendingEvent(evt) && <ThreadSummary eventID={evt.event_id} />}
       </div>
+      {/* Receipts sit in the row itself, at the bottom right, so they don't add a line of their own. */}
+      {readers && readers.length > 0 && (
+        <div className="receipts-slot flex shrink-0 self-end pb-0.5">
+          <ReadReceipts roomID={roomID} readers={readers} />
+        </div>
+      )}
       {!isPendingEvent(evt) && <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} />}
     </div>
   )
