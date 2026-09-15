@@ -431,15 +431,57 @@ export default function MediaPicker({ roomID, tabs, initialTab, allowFreeform, o
 
 function CategoryRail({ sections, active, onPick }: { sections: Section[]; active: number; onPick: (index: number) => void }) {
   const railRef = useRef<HTMLDivElement>(null)
+  const [overflow, setOverflow] = useState({ start: false, end: false })
+
   useEffect(() => {
     railRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [active])
+
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return
+    const update = () =>
+      setOverflow(prev => {
+        const start = rail.scrollLeft > 1
+        const end = rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 1
+        return prev.start === start && prev.end === end ? prev : { start, end }
+      })
+    // A vertical mouse wheel scrolls the rail sideways. Non-passive so the page behind doesn't scroll too.
+    const onWheel = (e: WheelEvent) => {
+      if (rail.scrollWidth <= rail.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
+      e.preventDefault()
+      const lineHeight = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 32 : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? rail.clientWidth : 1
+      rail.scrollBy({ left: e.deltaY * lineHeight, behavior: e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? 'auto' : 'smooth' })
+    }
+    update()
+    rail.addEventListener('wheel', onWheel, { passive: false })
+    rail.addEventListener('scroll', update, { passive: true })
+    const observer = new ResizeObserver(update)
+    observer.observe(rail)
+    return () => {
+      rail.removeEventListener('wheel', onWheel)
+      rail.removeEventListener('scroll', update)
+      observer.disconnect()
+    }
+  }, [sections.length])
+
+  // Fade the edges where more categories are hidden.
+  const fade = 'transparent, black 28px, black calc(100% - 28px), transparent'
+  const mask = overflow.start && overflow.end
+    ? `linear-gradient(to right, ${fade})`
+    : overflow.start
+      ? 'linear-gradient(to right, transparent, black 28px)'
+      : overflow.end
+        ? 'linear-gradient(to left, transparent, black 28px)'
+        : undefined
+
   return (
     <div
       ref={railRef}
       role="tablist"
       aria-label="Categories"
-      className="mx-3 mt-2 flex shrink-0 gap-0.5 overflow-x-auto border-b border-border pb-1 [scrollbar-width:none]"
+      className="mx-3 mt-2 flex shrink-0 gap-0.5 overflow-x-auto overscroll-x-contain border-b border-border pb-1 [scrollbar-width:none]"
+      style={{ maskImage: mask, WebkitMaskImage: mask }}
     >
       {sections.map((section, index) => (
         <button
