@@ -208,7 +208,11 @@ function writeSaved(saved: Record<string, SavedPermissions>) {
 /** A widget's permissions are tied to its room, ID and URL: a changed URL asks again. */
 export const widgetPermissionKey = (roomID: RoomID, widget: Pick<RoomWidget, 'id' | 'url'>) => `${roomID}|${widget.id}|${widget.url}`
 
+/** Answers given this session (also when not remembered), so a widget reloaded after its prompt isn't asked again. */
+const sessionAnswers = new Map<string, SavedPermissions>()
+
 export function forgetWidgetPermissions(key: string) {
+  sessionAnswers.delete(key)
   const saved = { ...useWidgetPermissions.getState().saved }
   delete saved[key]
   writeSaved(saved)
@@ -224,14 +228,25 @@ export interface PermissionRequest {
 
 export const usePermissionPrompt = create<{ request: PermissionRequest | null }>()(() => ({ request: null }))
 
-export function approveWidgetCapabilities(key: string, widgetName: string, widgetURL: string, requested: Set<string>): Promise<Set<string>> {
+/**
+ * Resolves a widget's capability request from remembered answers, or by asking. `onPrompt` is called
+ * when the user actually gets asked, since widgets may time out waiting and need a reload afterwards.
+ */
+export function approveWidgetCapabilities(
+  key: string,
+  widgetName: string,
+  widgetURL: string,
+  requested: Set<string>,
+  onPrompt?: () => void,
+): Promise<Set<string>> {
   const list = [...requested]
-  const saved = useWidgetPermissions.getState().saved[key]
+  const saved = sessionAnswers.get(key) ?? useWidgetPermissions.getState().saved[key]
   if (saved && list.every(capability => saved.asked.includes(capability))) {
     return Promise.resolve(new Set(list.filter(capability => saved.granted.includes(capability))))
   }
   // A second prompt replaces a pending one, which counts as denied.
   usePermissionPrompt.getState().request?.resolve([], false)
+  onPrompt?.()
   return new Promise(resolve => {
     usePermissionPrompt.setState({
       request: {
@@ -241,17 +256,13 @@ export function approveWidgetCapabilities(key: string, widgetName: string, widge
         preselected: saved ? list.filter(c => saved.granted.includes(c) || !saved.asked.includes(c)) : list,
         resolve: (granted, remember) => {
           usePermissionPrompt.setState({ request: null })
-          if (remember) {
-            const current = useWidgetPermissions.getState().saved
-            const previous = current[key]
-            writeSaved({
-              ...current,
-              [key]: {
-                granted: [...new Set([...(previous?.granted.filter(c => !list.includes(c)) ?? []), ...granted])],
-                asked: [...new Set([...(previous?.asked ?? []), ...list])],
-              },
-            })
+          const previous = saved
+          const answer: SavedPermissions = {
+            granted: [...new Set([...(previous?.granted.filter(c => !list.includes(c)) ?? []), ...granted])],
+            asked: [...new Set([...(previous?.asked ?? []), ...list])],
           }
+          sessionAnswers.set(key, answer)
+          if (remember) writeSaved({ ...useWidgetPermissions.getState().saved, [key]: answer })
           resolve(new Set(granted))
         },
       },

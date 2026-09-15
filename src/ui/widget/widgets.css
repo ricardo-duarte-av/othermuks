@@ -6,6 +6,28 @@
   background: var(--timeline-bg);
 }
 
+/* While the permission prompt is open the widget is hidden: it may show a timeout error meanwhile, and it
+   is reloaded once the prompt is answered. */
+.widget-container:has(iframe[data-awaiting-permission]) {
+  position: relative;
+}
+
+.widget-container iframe[data-awaiting-permission] {
+  visibility: hidden;
+}
+
+.widget-container:has(iframe[data-awaiting-permission])::before {
+  content: "Waiting for you to review this widget\2019s permissions\2026";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
 /* Pointer events shouldn't disappear into an iframe while resizing a panel or dragging a pop-out. */
 body[data-resizing] iframe {
   pointer-events: none;

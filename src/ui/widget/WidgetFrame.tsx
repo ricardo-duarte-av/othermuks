@@ -122,15 +122,28 @@ function liveWidget(roomID: RoomID, widget: RoomWidget, trusted: boolean): LiveW
   url.searchParams.set('parentUrl', location.href)
   url.searchParams.set('widgetId', widget.id)
 
-  const iframe = document.createElement('iframe')
-  iframe.src = url.href
-  iframe.title = widget.name
-  iframe.allow = 'microphone; camera; fullscreen; encrypted-media; display-capture; screen-wake-lock; autoplay; clipboard-write'
+  const makeIframe = () => {
+    const frame = document.createElement('iframe')
+    frame.src = url.href
+    frame.title = widget.name
+    frame.allow = 'microphone; camera; fullscreen; encrypted-media; display-capture; screen-wake-lock; autoplay; clipboard-write'
+    return frame
+  }
+  let iframe = makeIframe()
 
   const permissionKey = widgetPermissionKey(roomID, widget)
-  const driver = new OthermuksWidgetDriver(roomID, requested =>
-    trusted ? Promise.resolve(requested) : approveWidgetCapabilities(permissionKey, widget.name, widget.url, requested),
-  )
+  const driver = new OthermuksWidgetDriver(roomID, async requested => {
+    if (trusted) return requested
+    let prompted = false
+    const granted = await approveWidgetCapabilities(permissionKey, widget.name, widget.url, requested, () => {
+      prompted = true
+      // The widget may give up waiting (and show a timeout error) while the user reads the prompt.
+      iframe.setAttribute('data-awaiting-permission', '')
+    })
+    // Start the widget over now that the answer is known: the reloaded widget gets it instantly.
+    if (prompted) setTimeout(reload, 0)
+    return granted
+  })
 
   let api: ClientWidgetApi | null = null
   let removeListener: (() => void) | null = null
@@ -181,6 +194,20 @@ function liveWidget(roomID: RoomID, widget: RoomWidget, trusted: boolean): LiveW
       alwaysOnScreen = !!(evt.detail as { data?: { value?: unknown } }).data?.value
       acknowledge(evt)
     })
+  }
+
+  /** Replaces the iframe with a fresh one and reconnects the widget API to it. */
+  const reload = () => {
+    if (deleted) return
+    removeListener?.()
+    removeListener = null
+    api?.stop()
+    api?.removeAllListeners()
+    api = null
+    const fresh = makeIframe()
+    iframe.replaceWith(fresh)
+    iframe = fresh
+    setup()
   }
 
   const live: LiveWidget = {
