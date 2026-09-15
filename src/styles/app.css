@@ -249,7 +249,8 @@
     color: var(--room-item-active-text);
   }
 
-  .chat-message:hover {
+  .chat-message:hover,
+  .state-event:hover {
     background: var(--message-hover-bg);
   }
 
@@ -426,7 +427,8 @@
   }
 
   /* A message jumped to from a reply: flash, then fade back. */
-  .chat-message[data-highlight] {
+  .chat-message[data-highlight],
+  .state-event[data-highlight] {
     animation: message-highlight 2.6s ease-out;
   }
 
