@@ -414,7 +414,8 @@ function Switch({
     >
       <span
         className={cn(
-          'absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform',
+          // left-0 anchors the knob; without it an absolute child starts at the button's centered content.
+          'absolute left-0 top-0.5 size-4 rounded-full bg-white shadow transition-transform',
           checked ? 'translate-x-[18px]' : 'translate-x-0.5',
         )}
       />

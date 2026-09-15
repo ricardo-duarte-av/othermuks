@@ -114,7 +114,7 @@ function WrapSwitch({ wrap, onChange }: { wrap: boolean; onChange: (wrap: boolea
       <span className={cn('relative h-4 w-7 shrink-0 rounded-full transition-colors', wrap ? 'bg-accent' : 'bg-surface-2 ring-1 ring-border')}>
         <span
           className={cn(
-            'absolute top-0.5 size-3 rounded-full bg-white shadow transition-transform',
+            'absolute left-0 top-0.5 size-3 rounded-full bg-white shadow transition-transform',
             wrap ? 'translate-x-3.5' : 'translate-x-0.5',
           )}
         />
