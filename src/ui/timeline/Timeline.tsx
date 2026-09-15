@@ -7,6 +7,7 @@ import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
 import { isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
+import { useIgnoredUsers } from '@/store/ignored'
 import { useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
 import { useUI } from '@/store/ui'
@@ -28,7 +29,11 @@ interface Item {
   newDay: boolean
 }
 
-function useVisibleRowIDs(roomID: RoomID, filter: TimelineFilter) {
+/** Renderable, and not a message from someone the user ignores (their state events stay visible). */
+const isShown = (evt: TimelineEvent, filter: TimelineFilter, ignored: ReadonlySet<UserID>) =>
+  isRenderable(evt, filter) && !(ignored.has(evt.sender) && isMessageLike(evt))
+
+function useVisibleRowIDs(roomID: RoomID, filter: TimelineFilter, ignored: ReadonlySet<UserID>) {
   return useChat(
     useShallow(s => {
       const room = s.rooms[roomID]
@@ -36,13 +41,13 @@ function useVisibleRowIDs(roomID: RoomID, filter: TimelineFilter) {
       const rowids: EventRowID[] = []
       for (const tuple of room.timeline) {
         const evt = s.events[tuple.event_rowid]
-        if (evt && isRenderable(evt, filter)) rowids.push(evt.rowid)
+        if (evt && isShown(evt, filter, ignored)) rowids.push(evt.rowid)
       }
       if (room.pending.length) {
         const seen = new Set(rowids)
         for (const rowid of room.pending) {
           const evt = s.events[rowid]
-          if (evt && isRenderable(evt, filter) && !seen.has(rowid)) rowids.push(rowid)
+          if (evt && isShown(evt, filter, ignored) && !seen.has(rowid)) rowids.push(rowid)
         }
       }
       return rowids
@@ -82,7 +87,7 @@ function useArrivals(items: Item[]): Map<EventRowID, number> {
  * A receipt on a hidden event (reaction, edit, redaction…) shows on the nearest visible row before it.
  * Rows whose readers didn't change keep the same array, so only affected rows re-render.
  */
-function useReceiptLayout(roomID: RoomID, filter: TimelineFilter, enabled: boolean): Map<EventRowID, UserID[]> {
+function useReceiptLayout(roomID: RoomID, filter: TimelineFilter, ignored: ReadonlySet<UserID>, enabled: boolean): Map<EventRowID, UserID[]> {
   const signature = useChat(s => {
     const room = s.rooms[roomID]
     if (!room || !enabled) return ''
@@ -94,7 +99,7 @@ function useReceiptLayout(roomID: RoomID, filter: TimelineFilter, enabled: boole
     let lastVisible: EventRowID | undefined
     for (const tuple of room.timeline) {
       const evt = s.events[tuple.event_rowid]
-      if (evt && isRenderable(evt, filter)) lastVisible = evt.rowid
+      if (evt && isShown(evt, filter, ignored)) lastVisible = evt.rowid
       if (lastVisible !== undefined) displayRow.set(tuple.event_rowid, lastVisible)
     }
 
@@ -140,8 +145,9 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   const filter = useTimelineFilter(roomID)
   const showReceipts = usePreference('display_read_receipts', roomID)
   const showDates = usePreference('show_date_separators', roomID)
-  const rowids = useVisibleRowIDs(roomID, filter)
-  const receiptLayout = useReceiptLayout(roomID, filter, showReceipts)
+  const ignored = useIgnoredUsers()
+  const rowids = useVisibleRowIDs(roomID, filter, ignored)
+  const receiptLayout = useReceiptLayout(roomID, filter, ignored, showReceipts)
   const timelineLength = useChat(s => s.rooms[roomID]?.timeline.length ?? 0)
   const hasMore = useChat(s => s.rooms[roomID]?.hasMore ?? false)
   const paginating = useChat(s => s.rooms[roomID]?.paginating ?? false)

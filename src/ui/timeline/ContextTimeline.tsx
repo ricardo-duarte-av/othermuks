@@ -5,6 +5,7 @@ import type { RoomID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { useChat } from '@/store/chat'
 import { isMessageLike, isRenderable, type TimelineEvent } from '@/store/events'
+import { useIgnoredUsers } from '@/store/ignored'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
 import { useUI } from '@/store/ui'
@@ -26,6 +27,7 @@ export function ContextTimeline({ roomID }: { roomID: RoomID }) {
   const targetRowID = view?.targetRowID
 
   const filter = useTimelineFilter(roomID)
+  const ignored = useIgnoredUsers()
   const showDates = usePreference('show_date_separators', roomID)
 
   const items = useMemo(() => {
@@ -33,8 +35,9 @@ export function ContextTimeline({ roomID }: { roomID: RoomID }) {
     let prev: TimelineEvent | undefined
     return (rowids ?? []).flatMap(rowid => {
       const evt = events[rowid]
-      // The linked message itself always shows, even if the filter would hide it.
-      if (!evt || (!isRenderable(evt, filter) && !(rowid === targetRowID && isRenderable(evt)))) return []
+      // The linked message itself always shows, even if the filter (or ignoring its sender) would hide it.
+      const hidden = !evt || !isRenderable(evt, filter) || (ignored.has(evt.sender) && isMessageLike(evt))
+      if (!evt || (hidden && !(rowid === targetRowID && isRenderable(evt)))) return []
       const dayChange = !prev || !isSameDay(prev.timestamp, evt.timestamp)
       const compact =
         !!prev &&
@@ -46,7 +49,7 @@ export function ContextTimeline({ roomID }: { roomID: RoomID }) {
       prev = evt
       return [{ rowid, compact, newDay: dayChange && showDates }]
     })
-  }, [rowids, filter, showDates, targetRowID])
+  }, [rowids, filter, ignored, showDates, targetRowID])
 
   // Center the linked message once loaded, and follow later jumps within this view.
   useEffect(() => {

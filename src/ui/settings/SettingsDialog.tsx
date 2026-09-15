@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { Cloud, Hash, Monitor, Palette, Search, X, type LucideIcon } from 'lucide-react'
+import { Cloud, Hash, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
@@ -19,7 +19,10 @@ import {
 } from '@/store/preferences'
 import { closeSettings, showToast, useUI } from '@/store/ui'
 import { pushDeviceID, useWebPush, type WebPushStatus } from '@/store/webpush'
-import { Spinner } from '@/ui/primitives'
+import { fallbackDisplayName } from '@/store/events'
+import { setIgnored, useIgnoredUsers } from '@/store/ignored'
+import { loadProfile, useProfiles } from '@/store/profiles'
+import { Avatar, Spinner } from '@/ui/primitives'
 
 interface Column {
   context: PreferenceContext
@@ -219,8 +222,77 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
           })}
           {!entries.length && <p className="col-span-full py-10 text-center text-sm text-muted">No settings match</p>}
         </div>
+        {(!needle || 'ignored users'.includes(needle)) && <IgnoredUsersSection />}
       </div>
     </>
+  )
+}
+
+/** Everyone in m.ignored_user_list, with a way to stop ignoring them. */
+function IgnoredUsersSection() {
+  const ignored = useIgnoredUsers()
+  const list = [...ignored].sort()
+  return (
+    <section className="ignored-users mt-8 max-w-2xl">
+      <h3 className="flex items-center gap-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+        <UserX size={13} /> Ignored users
+        {list.length > 0 && <span className="rounded-full bg-surface-2 px-1.5 py-px text-[10px] normal-case tracking-normal">{list.length}</span>}
+      </h3>
+      <p className="mb-3 text-xs text-muted">
+        Ignored people's messages are hidden and they can't invite you. The list is saved on your account, so it applies to all your
+        clients. Ignore someone from their profile.
+      </p>
+      {list.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted">You're not ignoring anyone.</p>
+      ) : (
+        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+          {list.map(userID => (
+            <IgnoredUserRow key={userID} userID={userID} />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function IgnoredUserRow({ userID }: { userID: string }) {
+  const profile = useProfiles(s => s.profiles[userID]?.profile)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void loadProfile(userID)
+  }, [userID])
+
+  const name = typeof profile?.displayname === 'string' && profile.displayname ? profile.displayname : fallbackDisplayName(userID)
+  const avatar = typeof profile?.avatar_url === 'string' ? profile.avatar_url : undefined
+
+  const unignore = async () => {
+    setBusy(true)
+    try {
+      await setIgnored(userID, false)
+      showToast(`You're no longer ignoring ${name}`)
+    } catch (err) {
+      showToast(`Couldn't unignore ${name}: ${errorText(err)}`)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-3 bg-surface px-3 py-2">
+      <Avatar mxc={avatar} id={userID} name={name} size={32} />
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="block truncate text-sm font-medium">{name}</span>
+        <span className="block truncate text-xs text-muted">{userID}</span>
+      </span>
+      <button
+        type="button"
+        onClick={() => void unignore()}
+        disabled={busy}
+        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs transition-colors hover:bg-hover disabled:opacity-60"
+      >
+        {busy ? <Spinner size={12} /> : <UserCheck size={13} />} Unignore
+      </button>
+    </li>
   )
 }
 

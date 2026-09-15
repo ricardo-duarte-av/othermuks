@@ -1,8 +1,10 @@
-import { Clock, Copy, Shield, X } from 'lucide-react'
+import { Clock, Copy, Shield, UserCheck, UserX, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { mediaURL, userColorIndex } from '@/api/media'
 import type { RoomID, UserID } from '@/api/types'
+import { selectOwnUserID, useChat } from '@/store/chat'
 import { fallbackDisplayName } from '@/store/events'
+import { setIgnored, useIsIgnored } from '@/store/ignored'
 import { useMember, useRoomPowerContext } from '@/store/hooks'
 import { ROLE_LABELS, roleForLevel, userPowerLevel } from '@/store/power'
 import { loadProfile, useProfiles } from '@/store/profiles'
@@ -99,6 +101,81 @@ function LargeAvatar({ mxc, userID, name }: { mxc?: string; userID: UserID; name
   )
 }
 
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+/** Ignore / unignore, with a confirmation before ignoring. */
+function IgnoreSection({ userID, name }: { userID: UserID; name: string }) {
+  const ignored = useIsIgnored(userID)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const apply = async (ignore: boolean) => {
+    setBusy(true)
+    try {
+      await setIgnored(userID, ignore)
+      showToast(ignore ? `Ignored ${name}` : `You're no longer ignoring ${name}`)
+      setConfirming(false)
+    } catch (err) {
+      showToast(`Couldn't ${ignore ? 'ignore' : 'unignore'} ${name}: ${errorText(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (ignored) {
+    return (
+      <section className="profile-ignore border-t border-border pt-4">
+        <p className="mb-2 flex items-center gap-1.5 text-xs text-muted">
+          <UserX size={13} className="shrink-0 text-danger" /> You're ignoring {name}. Their messages are hidden.
+        </p>
+        <button
+          type="button"
+          onClick={() => void apply(false)}
+          disabled={busy}
+          className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-hover disabled:opacity-60"
+        >
+          {busy ? <Spinner size={14} /> : <UserCheck size={15} />} Unignore
+        </button>
+      </section>
+    )
+  }
+
+  return (
+    <section className="profile-ignore border-t border-border pt-4">
+      {confirming ? (
+        <div className="rounded-lg border border-danger/40 bg-danger/5 p-3">
+          <p className="text-sm font-medium">Ignore {name}?</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Their messages will be hidden in every room and they won't be able to invite you. This is saved on your account, so it
+            applies to all your clients. You can undo it here or in Settings.
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={() => setConfirming(false)} className="rounded-lg px-3 py-1.5 text-sm hover:bg-hover">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void apply(true)}
+              disabled={busy}
+              className="flex items-center gap-2 rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-60"
+            >
+              {busy && <Spinner size={14} />} Ignore
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-danger transition-colors hover:bg-danger/10"
+        >
+          <UserX size={15} /> Ignore user
+        </button>
+      )}
+    </section>
+  )
+}
+
 function SectionTitle({ children }: { children: string }) {
   return <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{children}</h4>
 }
@@ -132,6 +209,7 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
     .map(([key, value]) => [key, describeField(value)] as const)
     .filter((field): field is readonly [string, string] => !!field[1])
   const membership = member?.membership
+  const isSelf = useChat(selectOwnUserID) === userID
 
   const copyUserID = () =>
     navigator.clipboard.writeText(userID).then(
@@ -247,6 +325,8 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
               </dl>
             </section>
           )}
+
+          {!isSelf && <IgnoreSection userID={userID} name={name} />}
 
           {entry?.loading && !entry.profile && (
             <div className="flex justify-center py-4 text-muted">

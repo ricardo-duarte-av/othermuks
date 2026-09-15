@@ -1,10 +1,11 @@
 import { X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { EventID, EventRowID, RoomID } from '@/api/types'
+import type { EventID, EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { fetchEvent, loadThreadPage, useChat } from '@/store/chat'
 import { isMessageLike, type TimelineEvent } from '@/store/events'
+import { useIgnoredUsers } from '@/store/ignored'
 import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
 import { IconButton, Spinner } from '@/ui/primitives'
@@ -15,12 +16,13 @@ const GROUP_WINDOW = 5 * 60_000
 const BOTTOM_THRESHOLD = 48
 const NO_ROWS: EventRowID[] = []
 
-function useThreadReplies(rootID: EventID) {
+function useThreadReplies(rootID: EventID, ignored: ReadonlySet<UserID>) {
   return useChat(
     useShallow(s => {
       const replies = s.threads[rootID]
       if (!replies) return NO_ROWS
-      return replies.toSorted((a, b) => (s.events[a]?.timestamp ?? 0) - (s.events[b]?.timestamp ?? 0))
+      const shown = ignored.size ? replies.filter(rowid => !ignored.has(s.events[rowid]?.sender ?? '')) : replies
+      return shown.toSorted((a, b) => (s.events[a]?.timestamp ?? 0) - (s.events[b]?.timestamp ?? 0))
     }),
   )
 }
@@ -28,7 +30,8 @@ function useThreadReplies(rootID: EventID) {
 /** Thread view of the right panel: root message, replies, and a composer that sends into the thread. */
 export function ThreadView({ roomID, rootID }: { roomID: RoomID; rootID: EventID }) {
   const rootRowID = useChat(s => s.eventIDs[rootID])
-  const replies = useThreadReplies(rootID)
+  const ignored = useIgnoredUsers()
+  const replies = useThreadReplies(rootID, ignored)
   const highlight = useUI(s => s.highlight)
   const [nextBatch, setNextBatch] = useState<string>()
   const [loading, setLoading] = useState(true)
