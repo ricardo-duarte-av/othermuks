@@ -6,6 +6,8 @@ import {
   Ellipsis,
   Eye,
   FileText,
+  Film,
+  Image as ImageIcon,
   History,
   Link2,
   LockKeyhole,
@@ -13,6 +15,7 @@ import {
   Pencil,
   Reply,
   SmilePlus,
+  Sticker,
   Trash2,
   Undo2,
   Users,
@@ -22,7 +25,7 @@ import { memo, useEffect, useState, type ButtonHTMLAttributes, type CSSPropertie
 import { useShallow } from 'zustand/react/shallow'
 import { client } from '@/api/client'
 import { mediaURL, userColorIndex } from '@/api/media'
-import type { EventID, EventRowID, LocalContent, MessageEventContent, RelatesTo, RoomID, UserID } from '@/api/types'
+import type { EventID, EventRowID, LocalContent, MediaInfo, MessageEventContent, RelatesTo, RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { parseMatrixURI } from '@/lib/matrixURI'
 import { formatBytes, formatDay, formatFull, formatNames, formatTime } from '@/lib/format'
@@ -445,11 +448,36 @@ function FadeInImage({ src, alt, placeholder }: { src: string; alt: string; plac
 const placeholderStyle = (placeholder: string | undefined): CSSProperties | undefined =>
   placeholder ? { backgroundImage: `url(${placeholder})`, backgroundSize: '100% 100%' } : undefined
 
+/** Media revealed while show_media_previews is off, remembered so rows scrolled away and back stay revealed. */
+const revealedMedia = new Set<string>()
+
+function formatDuration(ms?: number) {
+  if (!ms || ms < 0) return undefined
+  const seconds = Math.round(ms / 1000)
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const rest = String(seconds % 60).padStart(2, '0')
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`
+}
+
+/** Dimensions, duration, size and type of a media file, as far as the event says. */
+function mediaDetails(info: MediaInfo): string[] {
+  const type = info.mimetype?.split('/')[1]?.split(/[+;]/)[0]?.toUpperCase()
+  return [info.w && info.h ? `${info.w}×${info.h}` : undefined, formatDuration(info.duration), formatBytes(info.size), type].filter(
+    (part): part is string => !!part,
+  )
+}
+
+function MediaKindIcon({ kind, size = 26 }: { kind: 'image' | 'video' | 'sticker'; size?: number }) {
+  const Icon = kind === 'video' ? Film : kind === 'sticker' ? Sticker : ImageIcon
+  return <Icon size={size} className="shrink-0 text-muted" aria-hidden />
+}
+
 function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: MessageEventContent; msgtype: string }) {
   const showPreviews = usePreference('show_media_previews', roomID)
   const autoplayGifs = usePreference('autoplay_gifs', roomID)
   const maxWidth = usePreference('max_image_width', roomID)
-  const [revealed, setRevealed] = useState(false)
+  const [revealedHere, setRevealedHere] = useState(false)
   const [hovering, setHovering] = useState(false)
   const { url, thumbnail, inline } = mediaSources(content)
   const info = content.info ?? {}
@@ -462,18 +490,50 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
   const boxStyle = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined
   const name = content.filename ?? content.body
 
-  // show_media_previews off: nothing is downloaded until the user asks for it.
+  // show_media_previews off: nothing is downloaded until the user asks for it. Until then show the
+  // blurhash (when the sender included one) and what the event says about the file.
+  const revealed = revealedHere || revealedMedia.has(url)
   if (!showPreviews && !revealed && (msgtype === 'm.image' || msgtype === 'm.sticker' || msgtype === 'm.video')) {
+    const kind = msgtype === 'm.video' ? 'video' : isSticker ? 'sticker' : 'image'
+    const details = mediaDetails(info)
+    const label = content.filename || content.body
     return (
       <button
         type="button"
-        onClick={() => setRevealed(true)}
-        className="media-hidden mt-1 grid max-w-full place-items-center overflow-hidden rounded-lg border border-border bg-surface text-sm text-muted transition-colors hover:text-fg"
-        style={{ ...(boxStyle ?? { width: Math.min(maxWidth, 320), aspectRatio: '4 / 3' }), ...placeholderStyle(placeholder) }}
+        onClick={() => {
+          revealedMedia.add(url)
+          setRevealedHere(true)
+        }}
+        aria-label={`Show ${kind}${label ? `: ${label}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`}
+        title={`Show ${kind}`}
+        className={cn(
+          'media-hidden group/hidden relative mt-1 flex max-w-full flex-col overflow-hidden rounded-lg border border-border text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          placeholder ? 'bg-surface' : 'bg-surface-2/60',
+        )}
+        style={{
+          width: Math.max(size?.width ?? Math.min(maxWidth, 320), 220),
+          aspectRatio: size ? `${size.width} / ${size.height}` : '4 / 3',
+          minHeight: 132,
+          ...placeholderStyle(placeholder),
+        }}
       >
-        <span className="flex items-center gap-1.5 rounded-full bg-bg/80 px-3 py-1 backdrop-blur-sm">
-          <Eye size={14} /> Show {msgtype === 'm.video' ? 'video' : 'image'}
+        <span className="flex flex-1 flex-col items-center justify-center gap-2 p-3">
+          {!placeholder && <MediaKindIcon kind={kind} />}
+          <span className="flex items-center gap-1.5 rounded-full bg-bg/85 px-3 py-1 text-sm font-medium text-fg shadow-sm backdrop-blur-sm transition-transform group-hover/hidden:scale-105">
+            <Eye size={14} /> Show {kind}
+          </span>
         </span>
+        {(label || details.length > 0) && (
+          <span
+            className={cn(
+              'block w-full px-2.5 pb-2 pt-5 text-xs leading-snug',
+              placeholder ? 'bg-linear-to-t from-black/70 to-transparent text-white' : 'text-muted',
+            )}
+          >
+            {label && <span className={cn('block truncate font-medium', !placeholder && 'text-fg')}>{label}</span>}
+            {details.length > 0 && <span className="block truncate opacity-90">{details.join(' · ')}</span>}
+          </span>
+        )}
       </button>
     )
   }
@@ -612,17 +672,42 @@ function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; eventID: Eve
 }
 
 function ReplyBody({ evt, lastEdit, senderName }: { evt: TimelineEvent; lastEdit?: TimelineEvent; senderName: string }) {
+  const showPreviews = usePreference('show_media_previews', evt.room_id)
   if (evt.redacted_by) return <span className="italic text-muted">Message deleted</span>
   if (evt.type === 'm.room.encrypted') return <span className="italic text-muted">Encrypted message</span>
   const { content, localContent } = displayContent(evt, lastEdit)
   const msgtype = evt.type === 'm.sticker' ? 'm.sticker' : content.msgtype
 
   if (msgtype === 'm.image' || msgtype === 'm.sticker') {
-    const { inline } = mediaSources(content)
+    const { url, inline } = mediaSources(content)
     const hasCaption = !!content.filename && content.body !== content.filename
+    const info = content.info ?? {}
+    // Quoted media obeys show_media_previews too, unless it was already revealed in the timeline.
+    const hidden = !showPreviews && !(url && revealedMedia.has(url))
+    const placeholder = hidden ? blurhashDataURL(blurhashOf(info)) : undefined
+    const thumb = fitSize(info.w, info.h, 120, 64)
+    const details = hidden ? mediaDetails(info) : []
     return (
       <span className="flex flex-col items-start gap-1">
-        {inline && <img src={inline} alt={content.body} loading="lazy" className="max-h-28 max-w-48 rounded object-cover" />}
+        {hidden ? (
+          <span className="flex min-w-0 max-w-full items-center gap-2">
+            {placeholder ? (
+              <span
+                aria-hidden
+                className="block shrink-0 rounded"
+                style={{ width: thumb?.width ?? 64, height: thumb?.height ?? 48, ...placeholderStyle(placeholder) }}
+              />
+            ) : (
+              <MediaKindIcon kind={msgtype === 'm.sticker' ? 'sticker' : 'image'} size={16} />
+            )}
+            <span className="min-w-0 leading-tight text-muted">
+              <span className="block truncate">{content.filename || content.body || (msgtype === 'm.sticker' ? 'Sticker' : 'Image')}</span>
+              {details.length > 0 && <span className="block truncate text-[11px]">{details.join(' · ')}</span>}
+            </span>
+          </span>
+        ) : (
+          inline && <img src={inline} alt={content.body} loading="lazy" className="max-h-28 max-w-48 rounded object-cover" />
+        )}
         {hasCaption && <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} className="text-[13px] text-fg/80" allowBigEmoji={false} />}
       </span>
     )
