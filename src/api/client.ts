@@ -17,6 +17,10 @@ import type {
 } from './types'
 
 const PING_INTERVAL = 15_000
+/** How long an event stream may go without a response or its first data before it counts as stuck. */
+const STREAM_STALL_TIMEOUT = 20_000
+/** gomuks closes a websocket that sends nothing for a minute; we give up on one that receives nothing as long. */
+const WS_RECV_TIMEOUT = 4 * PING_INTERVAL
 
 type Listener<T> = (value: T) => void
 
@@ -96,6 +100,12 @@ export class GomuksClient {
   #failures = 0
   #everConnected = false
   #connectStarted = 0
+  /**
+   * How events arrive. Always SSE, except on the same origin after SSE stalled (e.g. a firewall that
+   * holds streaming responses back): then gomuks' websocket, for the rest of the session. A websocket
+   * can't carry Basic auth and gomuks' cookie is SameSite=Lax, so remote backends stay on SSE.
+   */
+  #transport: 'sse' | 'websocket' = 'sse'
 
   // Resume state: see "Session resumption" in the RPC spec.
   #runID?: string
@@ -111,6 +121,7 @@ export class GomuksClient {
   configure(backend: BackendConfig) {
     if (!this.#stopped) this.stop()
     this.#backend = backend
+    this.#transport = 'sse'
     this.#runID = undefined
     this.#listenerID = undefined
     this.#lastReceived = undefined
@@ -215,45 +226,190 @@ export class GomuksClient {
 
     this.#connectStarted = performance.now()
     this.connection.emit({ connected: false, reconnecting: true, error: null })
-    const url = this.url(`sse?${params}`)
-    this.#stream = this.#backend.mode === 'remote' ? this.#openFetchStream(url) : this.#openEventSource(url)
+    if (this.#backend.mode === 'remote') {
+      this.#stream = this.#openFetchStream(this.url(`sse?${params}`))
+    } else if (this.#transport === 'websocket') {
+      this.#stream = this.#openWebSocket(params)
+    } else {
+      this.#stream = this.#openEventSource(this.url(`sse?${params}`))
+    }
   }
 
   #openEventSource(url: string): EventStream {
     const source = new EventSource(url)
-    source.onopen = this.#onOpen
-    source.onmessage = msg => this.#onMessage(msg.data)
-    source.onerror = this.#onError
-    return { close: () => source.close() }
+    let receiving = false
+    // EventSource can report "open" while a proxy holds the body back, so only events count. If none
+    // arrive, fall back to gomuks' websocket (same origin: the cookie authenticates it).
+    const stallTimer = setTimeout(() => {
+      if (receiving) return
+      log.warn(`event stream stalled: no data after ${STREAM_STALL_TIMEOUT / 1000}s, switching to the websocket`)
+      source.close()
+      this.#stream = null
+      this.#transport = 'websocket'
+      if (!this.#stopped) this.#connect()
+    }, STREAM_STALL_TIMEOUT)
+    source.onmessage = msg => {
+      if (!receiving) {
+        receiving = true
+        clearTimeout(stallTimer)
+        this.#onOpen()
+      }
+      this.#onMessage(msg.data)
+    }
+    source.onerror = () => {
+      clearTimeout(stallTimer)
+      this.#onError()
+    }
+    return {
+      close: () => {
+        clearTimeout(stallTimer)
+        source.close()
+      },
+    }
+  }
+
+  /**
+   * gomuks' websocket, used only for receiving events (commands still go over HTTP exec). It needs a
+   * ping at least every minute; pings also acknowledge the last received event, like /sse/ping.
+   */
+  #openWebSocket(params: URLSearchParams): EventStream {
+    const url = new URL('/_gomuks/websocket', location.href)
+    url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.search = params.toString()
+    log.info(`connecting over the websocket: ${url.pathname}${url.search}`)
+    const socket = new WebSocket(url)
+    let receiving = false
+    let closed = false
+    let lastMessage = Date.now()
+    let requestID = 0
+
+    const cleanup = () => {
+      closed = true
+      clearTimeout(stallTimer)
+      clearInterval(pingTimer)
+      socket.onmessage = null
+      socket.onclose = null
+      socket.onerror = null
+    }
+    const fail = (reason?: string) => {
+      if (closed) return
+      cleanup()
+      socket.close()
+      this.#onError(reason)
+    }
+
+    const stallTimer = setTimeout(() => {
+      if (receiving) return
+      log.warn(`websocket stalled: no data after ${STREAM_STALL_TIMEOUT / 1000}s`)
+      fail("No data from gomuks over the event stream or the websocket. This network seems to block both.")
+    }, STREAM_STALL_TIMEOUT)
+
+    const pingTimer = setInterval(() => {
+      if (socket.readyState !== WebSocket.OPEN) return
+      if (Date.now() - lastMessage > WS_RECV_TIMEOUT) {
+        log.warn(`websocket received nothing for ${WS_RECV_TIMEOUT / 1000}s`)
+        fail()
+        return
+      }
+      socket.send(JSON.stringify({ command: 'ping', request_id: ++requestID, data: { last_received_id: this.#lastReceived ?? 0 } }))
+    }, PING_INTERVAL)
+
+    socket.onmessage = msg => {
+      if (typeof msg.data !== 'string') return
+      lastMessage = Date.now()
+      if (!receiving) {
+        receiving = true
+        clearTimeout(stallTimer)
+        this.#onOpen()
+      }
+      // One JSON command per line (gomuks may put several in one frame).
+      for (const line of msg.data.split('\n')) {
+        if (!line.trim() || line.startsWith('{"command":"pong"')) continue
+        this.#onMessage(line)
+      }
+    }
+    socket.onerror = () => log.debug('websocket error')
+    socket.onclose = event => {
+      if (closed) return
+      log.warn(`websocket closed (${event.code}${event.reason ? `: ${event.reason}` : ''})`)
+      cleanup()
+      this.#onError()
+    }
+    return {
+      close: () => {
+        if (closed) return
+        cleanup()
+        socket.close(1000, 'Client closed')
+      },
+    }
   }
 
   /** EventSource can't send an Authorization header, so remote backends are read with fetch. */
   #openFetchStream(url: string): EventStream {
     const controller = new AbortController()
+    // gomuks answers and sends its first events right away. If nothing arrives, something between the
+    // browser and the server (antivirus web scanning, a proxy, an extension) is holding the stream back;
+    // without a watchdog the page would wait silently forever.
+    let stallTimer: ReturnType<typeof setTimeout> | undefined
+    let stalled: string | null = null
+    const watch = (stage: string) => {
+      clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => {
+        stalled = stage
+        log.warn(`event stream stalled: ${stage} after ${STREAM_STALL_TIMEOUT / 1000}s`)
+        controller.abort()
+        // Report right away rather than waiting for the aborted request to reject.
+        this.#onError(
+          `No data from gomuks (${stage}). Something between this browser and the server may be holding back the event ` +
+            'stream: antivirus HTTPS or web scanning, a VPN or company proxy, or a browser extension. ' +
+            "(The websocket fallback only works when othermuks is opened from the gomuks server's own address.)",
+        )
+      }, STREAM_STALL_TIMEOUT)
+    }
     const run = async () => {
+      watch('no response')
       const res = await fetch(url, this.#request({ cache: 'no-store', signal: controller.signal }, { Accept: 'text/event-stream' }))
+      log.info(
+        `event stream response: HTTP ${res.status}, ${res.headers.get('content-type') ?? 'no content-type'}, ` +
+          `encoding ${res.headers.get('content-encoding') ?? 'none'}`,
+      )
       if (res.status === 401) {
+        clearTimeout(stallTimer)
         log.warn('event stream rejected the credentials')
         this.stop()
         this.unauthorized.emit()
         return
       }
       if (!res.ok || !res.body) throw new Error(`event stream failed with status ${res.status}`)
-      this.#onOpen()
+      watch('response headers arrived but no data')
       const feed = createSSEParser(this.#onMessage)
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+      let receiving = false
       for (;;) {
         const { value, done } = await reader.read()
         if (done) throw new Error('event stream ended')
+        if (!receiving) {
+          // Only data proves the stream works; headers alone can arrive while the body is held back.
+          receiving = true
+          clearTimeout(stallTimer)
+          this.#onOpen()
+        }
         feed(value)
       }
     }
     run().catch(err => {
-      if (controller.signal.aborted) return
+      clearTimeout(stallTimer)
+      // A stall was already reported by the watchdog; a close() abort needs no handling.
+      if (stalled || controller.signal.aborted) return
       log.debug('event stream error', err)
       this.#onError()
     })
-    return { close: () => controller.abort() }
+    return {
+      close: () => {
+        clearTimeout(stallTimer)
+        controller.abort()
+      },
+    }
   }
 
   #onOpen = () => {
@@ -284,7 +440,7 @@ export class GomuksClient {
     this.events.emit({ evt, bytes: data.length, parseMs })
   }
 
-  #onError = () => {
+  #onError = (reason?: string) => {
     // Take over reconnecting: EventSource's own retry wouldn't send resume params.
     this.#stream?.close()
     this.#stream = null
@@ -297,7 +453,7 @@ export class GomuksClient {
     this.connection.emit({
       connected: false,
       reconnecting: true,
-      error: 'Connection to gomuks lost',
+      error: reason ?? 'Connection to gomuks lost',
       nextAttempt: Date.now() + backoff,
     })
     this.#reconnectTimer = setTimeout(async () => {
@@ -315,6 +471,8 @@ export class GomuksClient {
   }
 
   #ping = () => {
+    // The websocket acknowledges events with its own pings.
+    if (this.#transport === 'websocket' && this.#backend.mode === 'same-origin') return
     const evtID = this.#lastReceived
     if (!this.#runID || !this.#listenerID || !evtID || evtID === this.#lastAcked) return
     const params = new URLSearchParams({
