@@ -37,7 +37,7 @@ const COLUMNS: Column[] = [
   { context: PreferenceContext.RoomDevice, label: 'Room · device', hint: 'Only this room, only in this browser', icons: [Hash, Monitor], room: true },
 ]
 
-const GROUPS: PreferenceGroup[] = ['Privacy', 'Notifications', 'Timeline', 'Media', 'Composer', 'Code', 'Room list']
+const GROUPS: PreferenceGroup[] = ['Privacy', 'Timeline', 'Media', 'Composer', 'Code', 'Room list', 'Notifications']
 
 const PUSH_STATUS_TEXT: Record<WebPushStatus, string> = {
   unsupported: "This browser can't receive web push here: it needs HTTPS and service worker and push support.",

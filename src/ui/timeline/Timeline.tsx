@@ -1,11 +1,13 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { LayoutGroup } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { ArrowDown } from 'lucide-react'
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
 import { isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
+import { useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
 import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
@@ -166,6 +168,10 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
+  /** Mirrors !atBottom for rendering the jump-to-latest button (the ref alone doesn't re-render). */
+  const [detached, setDetached] = useState(false)
+  /** A "Jump to latest" smooth scroll is in progress. */
+  const jumping = useRef(false)
   const anchor = useRef<{ rowid: EventRowID; offset: number } | null>(null)
   const firstRowID = useRef<EventRowID | undefined>(undefined)
 
@@ -185,7 +191,17 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     const el = scrollRef.current
     if (!el) return
     const wasAtBottom = atBottom.current
-    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD
+    const reachedBottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD
+    if (jumping.current) {
+      // Mid smooth-scroll from "Jump to latest": stay attached until the bottom is reached.
+      if (reachedBottom) {
+        jumping.current = false
+        markLatestRead(roomID)
+      }
+      return
+    }
+    atBottom.current = reachedBottom
+    setDetached(!reachedBottom)
     const first = virtualizer.getVirtualItems().find(item => item.end > el.scrollTop)
     anchor.current = first ? { rowid: first.key as EventRowID, offset: first.start - el.scrollTop } : null
     if (el.scrollTop < LOAD_THRESHOLD) void loadOlder(roomID)
@@ -211,10 +227,23 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   // Jump to a message (e.g. from a reply preview); the row highlights itself.
   useEffect(() => {
     if (!highlight) return
+    // A context view open for this room is already showing (and highlighting) the message. Leave the
+    // room timeline underneath pinned to the latest messages instead of scrolling it as well.
+    if (useEventContext.getState().view?.roomID === roomID) return
     const index = items.findIndex(item => item.rowid === highlight.rowid)
     if (index < 0) return
     atBottom.current = false
+    setDetached(true)
     virtualizer.scrollToIndex(index, { align: 'center' })
+    // On a short list scrollToIndex may not move anything, so no scroll event records an anchor. Record
+    // it here, or history prepended afterwards would leave the view at the top and keep paginating.
+    const rowid = highlight.rowid
+    const frame = requestAnimationFrame(() => {
+      const el = scrollRef.current
+      const measurement = virtualizer.measurementsCache[index]
+      if (el && measurement) anchor.current = { rowid, offset: measurement.start - el.scrollTop }
+    })
+    return () => cancelAnimationFrame(frame)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlight])
 
@@ -234,8 +263,43 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     if (el.scrollTop < LOAD_THRESHOLD) void loadOlder(roomID)
   }, [roomID, timelineLength, hasMore, paginating])
 
+  const jumpToLatest = () => {
+    const el = scrollRef.current
+    if (!el) return
+    // Re-attach right away so messages arriving during the smooth scroll keep it pinned to the bottom.
+    atBottom.current = true
+    jumping.current = true
+    anchor.current = null
+    setDetached(false)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  /** The user taking over the scroll ends a jump in progress. */
+  const cancelJump = () => {
+    jumping.current = false
+  }
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      <AnimatePresence>
+        {detached && items.length > 0 && (
+          <motion.button
+            key="jump-to-latest"
+            type="button"
+            onClick={jumpToLatest}
+            initial={{ opacity: 0, y: 12, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.9 }}
+            transition={{ type: 'spring', stiffness: 460, damping: 34 }}
+            aria-label="Jump to latest message"
+            title="Jump to latest message"
+            className="jump-to-latest absolute bottom-3 right-4 z-20 flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg shadow-lg outline-none transition-colors hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <ArrowDown size={14} className="text-accent" />
+            Jump to latest
+          </motion.button>
+        )}
+      </AnimatePresence>
       {paginating && (
         <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
           <span className="flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted shadow">
@@ -246,6 +310,9 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       <div
         ref={scrollRef}
         onScroll={onScroll}
+        onWheel={cancelJump}
+        onTouchStart={cancelJump}
+        onKeyDown={cancelJump}
         role="log"
         className="timeline flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [overflow-anchor:none]"
       >
