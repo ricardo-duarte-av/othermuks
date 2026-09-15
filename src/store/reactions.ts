@@ -9,6 +9,8 @@ export interface Reactor {
   /** The reaction event, needed to remove one's own reaction. */
   eventID: EventID
   timestamp: number
+  /** com.beeper.reaction.shortcode, for custom emoji reactions. */
+  shortcode?: string
 }
 
 interface ReactionDetails {
@@ -47,7 +49,13 @@ export async function loadReactionDetails(roomID: RoomID, evt: TimelineEvent): P
         if (reaction.redacted_by || reaction.type !== 'm.reaction') continue
         const key = (reaction.content['m.relates_to'] as { key?: unknown } | undefined)?.key
         if (typeof key !== 'string') continue
-        ;(byKey[key] ??= []).push({ userID: reaction.sender, eventID: reaction.event_id, timestamp: reaction.timestamp })
+        const shortcode = reaction.content['com.beeper.reaction.shortcode']
+        ;(byKey[key] ??= []).push({
+          userID: reaction.sender,
+          eventID: reaction.event_id,
+          timestamp: reaction.timestamp,
+          shortcode: typeof shortcode === 'string' ? shortcode : undefined,
+        })
       }
       for (const reactors of Object.values(byKey)) reactors.sort((a, b) => a.timestamp - b.timestamp)
       patch(evt.event_id, { signature, loading: false, byKey })

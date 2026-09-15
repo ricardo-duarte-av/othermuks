@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite'
 
-const EMOJIBASE_FILES = ['data.json', 'messages.json']
+const EMOJIBASE_FILES = ['compact.json', 'shortcodes/emojibase.json']
 const emojibaseDir = fileURLToPath(new URL('./node_modules/emojibase-data/en/', import.meta.url))
 
-/** Serves the reaction picker's emoji data from our own origin instead of a CDN. */
+/** Serves the emoji picker's data from our own origin instead of a CDN. */
 function emojibaseData(): Plugin {
   const read = (file: string) => readFileSync(emojibaseDir + file)
   return {

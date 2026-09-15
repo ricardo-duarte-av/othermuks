@@ -100,6 +100,12 @@ export const preferences = {
   ctrl_enter_send: bool('Composer', 'Use Ctrl+Enter to send', 'Disable sending on Enter and use Ctrl+Enter for sending instead.', false),
   refocus_input_after_send: bool('Composer', 'Re-focus composer after send', 'Should the composer text area be immediately focused again after the send button is clicked?', true),
   ctrl_arrow_reply: bool('Composer', 'Use Ctrl+Arrow to reply', "Should Ctrl+Arrow Up/Down change the message you're replying to?", true),
+  show_room_emoji_packs: bool(
+    'Composer',
+    'Show room emoji packs',
+    'Whether custom emoji and sticker packs defined in the current room are offered in the picker, in addition to the packs you subscribed to.',
+    true,
+  ),
 
   code_block_line_wrap: bool('Code', 'Code block line wrap', 'Whether to wrap long lines in code blocks instead of scrolling horizontally.', false),
   code_block_theme: {

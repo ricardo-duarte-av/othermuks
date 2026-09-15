@@ -13,6 +13,7 @@ import { client, type ReceivedEvent } from '@/api/client'
 import { formatMs, formatSize, log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
 import { handleRPCEvent, useChat } from './chat'
+import { loadSubscribedPacks } from './emoji'
 import { getPreference, useLocalPrefs } from './preferences'
 import { applyTheme, codeblockStyleFor, setCodeblockCSS, useUI } from './ui'
 
@@ -117,6 +118,8 @@ function refreshCodeblockStyle() {
 
 useChat.subscribe((state, prev) => {
   if (state.accountData !== prev.accountData) refreshCodeblockStyle()
+  // Subscribed emoji packs live in rooms whose state isn't loaded; fetch them once rooms are known.
+  if (state.initComplete && (state.accountData !== prev.accountData || !prev.initComplete)) void loadSubscribedPacks()
 })
 useLocalPrefs.subscribe(refreshCodeblockStyle)
 

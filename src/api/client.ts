@@ -387,12 +387,16 @@ export class GomuksClient {
     return this.exec<RawDBEvent | null>('send_message', params)
   }
 
-  sendReaction(room_id: RoomID, event_id: EventID, key: string) {
-    return this.exec<RawDBEvent>('send_event', {
-      room_id,
-      type: 'm.reaction',
-      content: { 'm.relates_to': { rel_type: 'm.annotation', event_id, key } },
-    })
+  /** For custom emoji (mxc:// keys), pass the shortcode so other clients can show its name. */
+  sendReaction(room_id: RoomID, event_id: EventID, key: string, shortcode?: string) {
+    const content: Record<string, unknown> = { 'm.relates_to': { rel_type: 'm.annotation', event_id, key } }
+    if (shortcode && key.startsWith('mxc://')) content['com.beeper.reaction.shortcode'] = `:${shortcode.replaceAll(':', '')}:`
+    return this.exec<RawDBEvent>('send_event', { room_id, type: 'm.reaction', content })
+  }
+
+  /** Individual state events, e.g. emoji packs from rooms whose state isn't loaded. */
+  getSpecificRoomState(keys: { room_id: RoomID; type: string; state_key: string }[]) {
+    return this.exec<RawDBEvent[] | null>('get_specific_room_state', { keys })
   }
 
   redactEvent(room_id: RoomID, event_id: EventID, reason = '') {

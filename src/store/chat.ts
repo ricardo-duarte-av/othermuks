@@ -423,6 +423,24 @@ export async function loadRoomState(roomID: RoomID) {
   }
 }
 
+/** Merges individually fetched state events (e.g. emoji packs from get_specific_room_state) into their rooms. */
+export function applyStateEvents(stateEvents: RawDBEvent[]) {
+  const s = get()
+  const tables = new EventTables(s)
+  tables.add(stateEvents)
+  const rooms = { ...s.rooms }
+  let changed = false
+  for (const raw of stateEvents) {
+    const room = rooms[raw.room_id]
+    if (!room || raw.state_key === undefined) continue
+    const rowid = raw.event_id ? tables.eventIDs[raw.event_id] : raw.rowid
+    if (rowid === undefined) continue
+    rooms[raw.room_id] = { ...room, state: { ...room.state, [raw.type]: { ...room.state[raw.type], [raw.state_key]: rowid } } }
+    changed = true
+  }
+  set({ ...tables.patch, ...(changed ? { rooms } : {}) })
+}
+
 const fetchingEvents = new Set<EventID>()
 
 /** Fetches an event that isn't in the store yet (e.g. an old reply target). Tried once per event. */

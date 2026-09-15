@@ -1,18 +1,25 @@
-import { Paperclip, Pencil, Reply, SendHorizontal, X } from 'lucide-react'
+import { Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { client } from '@/api/client'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
+import { customEmojiMarkdown, recordEmojiUse, sendSticker, type CustomEmoji } from '@/store/emoji'
 import { displayContent, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
-import { usePreference } from '@/store/preferences'
 import { useDisplayName } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
+import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
+import { EmojiSuggestions, useEmojiSuggestions } from '@/ui/emoji/EmojiAutocomplete'
+import { EmojiPopover } from '@/ui/emoji/EmojiPopover'
+import { withTone, type EmojiItem, type PickerSelection } from '@/ui/emoji/items'
+import { readSkinTone } from '@/ui/emoji/unicode'
 import { IconButton, Spinner } from '@/ui/primitives'
 
 const TYPING_TIMEOUT = 10_000
 const TYPING_RESEND = 4_000
+/** `:name` right before the caret, at the start or after whitespace or "(". */
+const SUGGEST_PATTERN = /(?:^|[\s(])(:[a-zA-Z0-9_+-]{2,})$/
 const drafts = new Map<string, string>()
 
 interface ComposerProps {
@@ -40,13 +47,25 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '')
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(0)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [stickersOpen, setStickersOpen] = useState(false)
+  const [suggest, setSuggest] = useState<{ start: number; end: number; query: string } | null>(null)
+  const [suggestIndex, setSuggestIndex] = useState(0)
+  const dismissedAt = useRef(-1)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const typingSentAt = useRef(0)
 
+  const suggestions = useEmojiSuggestions(suggest?.query ?? null, roomID)
+  const suggesting = !!suggest && suggestions.length > 0
+
   useEffect(() => {
     drafts.set(draftKey, text)
   }, [draftKey, text])
+
+  useEffect(() => {
+    setSuggestIndex(0)
+  }, [suggest?.query])
 
   // Load the message source into the input when editing starts.
   useEffect(() => {
@@ -86,6 +105,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     const opts = { replyTo, edit: editing, threadRoot }
     setText('')
     setError(null)
+    setSuggest(null)
     if (replyTo || editing) useUI.setState({ replyTo: null, editing: null })
     stopTyping()
     // Sending from the room composer returns to the present if an older context view is open.
@@ -109,6 +129,64 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     } finally {
       setUploading(n => n - files.length)
     }
+  }
+
+  async function sendStickerPick(emoji: CustomEmoji) {
+    setError(null)
+    if (!threadRoot && useEventContext.getState().view?.roomID === roomID) closeEventContext()
+    try {
+      await sendSticker(roomID, emoji, threadRoot)
+    } catch (err) {
+      setError(`Couldn't send the sticker: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** Replaces text[start, end) and puts the caret after the insertion. */
+  function replaceRange(start: number, end: number, insertion: string) {
+    const next = text.slice(0, start) + insertion + text.slice(end)
+    onChange(next)
+    const caret = start + insertion.length
+    requestAnimationFrame(() => {
+      const input = inputRef.current
+      input?.focus()
+      input?.setSelectionRange(caret, caret)
+    })
+  }
+
+  function insertAtCursor(insertion: string) {
+    const input = inputRef.current
+    const start = input?.selectionStart ?? text.length
+    const end = input?.selectionEnd ?? start
+    replaceRange(start, end, insertion)
+  }
+
+  function onPickerSelect(selection: PickerSelection) {
+    if (selection.kind === 'sticker') void sendStickerPick(selection.emoji)
+    else insertAtCursor(selection.kind === 'custom' ? customEmojiMarkdown(selection.emoji) : selection.text)
+  }
+
+  function updateSuggest(value: string, caret: number | null) {
+    const match = caret === null ? null : SUGGEST_PATTERN.exec(value.slice(0, caret))
+    if (!match || caret === null) {
+      dismissedAt.current = -1
+      setSuggest(null)
+      return
+    }
+    const start = caret - match[1].length
+    if (start === dismissedAt.current) {
+      setSuggest(null)
+      return
+    }
+    const query = match[1].slice(1)
+    setSuggest(prev => (prev && prev.start === start && prev.end === caret ? prev : { start, end: caret, query }))
+  }
+
+  function pickSuggestion(item: EmojiItem) {
+    if (!suggest) return
+    const insertion = item.kind === 'custom' ? customEmojiMarkdown(item.emoji) : withTone(item.emoji, readSkinTone())
+    recordEmojiUse(item.kind === 'custom' ? item.emoji.key : insertion)
+    replaceRange(suggest.start, suggest.end, `${insertion} `)
+    setSuggest(null)
   }
 
   /** Ctrl+↑/↓ moves the reply target through the timeline (↓ past the newest message clears it). */
@@ -139,6 +217,25 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (suggesting && suggest) {
+      const count = suggestions.length
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSuggestIndex(i => (i + (e.key === 'ArrowDown' ? 1 : -1) + count) % count)
+        return
+      }
+      if ((e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) || e.key === 'Tab') {
+        e.preventDefault()
+        pickSuggestion(suggestions[Math.min(suggestIndex, count - 1)])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        dismissedAt.current = suggest.start
+        setSuggest(null)
+        return
+      }
+    }
     const mod = e.ctrlKey || e.metaKey
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (!ctrlEnterSend || mod)) {
       e.preventDefault()
@@ -175,7 +272,15 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
       : null
 
   return (
-    <div className="composer-wrap shrink-0 px-4 pb-4">
+    <div className="composer-wrap relative shrink-0 px-4 pb-4">
+      {suggesting && (
+        <EmojiSuggestions
+          items={suggestions}
+          active={Math.min(suggestIndex, suggestions.length - 1)}
+          onHover={setSuggestIndex}
+          onPick={pickSuggestion}
+        />
+      )}
       {context && (
         <div className="composer-context flex items-center gap-2 rounded-t-xl border border-b-0 border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted">
           {context.icon}
@@ -202,7 +307,14 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           autoFocus
           placeholder={threadRoot ? 'Reply in thread…' : 'Send a message…'}
           aria-label={threadRoot ? 'Reply in thread' : roomName ? `Message ${roomName}` : 'Message'}
-          onChange={e => onChange(e.target.value)}
+          aria-autocomplete="list"
+          aria-expanded={suggesting}
+          onChange={e => {
+            onChange(e.target.value)
+            updateSuggest(e.target.value, e.target.selectionStart)
+          }}
+          onSelect={e => updateSuggest(e.currentTarget.value, e.currentTarget.selectionStart)}
+          onBlur={() => setSuggest(null)}
           onKeyDown={onKeyDown}
           onPaste={e => {
             const files = Array.from(e.clipboardData.files)
@@ -213,6 +325,32 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           }}
           className="max-h-60 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[15px] leading-5 outline-none [field-sizing:content] placeholder:text-muted"
         />
+        <EmojiPopover
+          roomID={roomID}
+          open={emojiOpen}
+          onOpenChange={setEmojiOpen}
+          tabs={editing ? ['emoji'] : ['emoji', 'stickers']}
+          initialTab="emoji"
+          restoreFocus={false}
+          onSelect={onPickerSelect}
+        >
+          <IconButton label="Emoji" data-active={emojiOpen || undefined}>
+            <Smile size={17} />
+          </IconButton>
+        </EmojiPopover>
+        <EmojiPopover
+          roomID={roomID}
+          open={stickersOpen}
+          onOpenChange={setStickersOpen}
+          tabs={['emoji', 'stickers']}
+          initialTab="stickers"
+          restoreFocus={false}
+          onSelect={onPickerSelect}
+        >
+          <IconButton label={editing ? "Stickers can't be sent while editing" : 'Stickers'} disabled={!!editing} data-active={stickersOpen || undefined}>
+            <Sticker size={17} />
+          </IconButton>
+        </EmojiPopover>
         <IconButton
           label="Send"
           shortcut={ctrlEnterSend ? 'Ctrl Enter' : 'Enter'}

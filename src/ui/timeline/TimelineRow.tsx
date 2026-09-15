@@ -38,8 +38,10 @@ import {
   previewText,
   type TimelineEvent,
 } from '@/store/events'
+import { customEmojiShortcode } from '@/store/emoji'
 import { useMember } from '@/store/hooks'
 import { usePreference } from '@/store/preferences'
+import type { PickerSelection } from '@/ui/emoji/items'
 import { jumpToEvent, openMatrixTarget } from '@/store/navigation'
 import { loadReactionDetails, reactionSignature, useReactionDetails, type Reactor } from '@/store/reactions'
 import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
@@ -49,7 +51,9 @@ import { Avatar } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
 import { ReadReceipts } from './ReadReceipts'
 
-const QUICK_REACTIONS = ['👍', '❤️', '😂']
+// Fully qualified (with U+FE0F where needed), matching the picker, gomuks and Element, so the same
+// reaction from different clients is counted together.
+const QUICK_REACTIONS = ['👍️', '❤️', '😂']
 const EDITABLE_MSGTYPES = new Set(['m.text', 'm.emote', 'm.notice'])
 
 /** A row mounting within this long after it arrived animates in; later remounts (scrolling) don't. */
@@ -709,8 +713,11 @@ function ReactionChip({ roomID, evt, reactionKey, count, reactors, own, onToggle
       })
     }),
   )
+  const custom = reactionKey.startsWith('mxc://')
+  const knownShortcode = useChat(s => (custom ? customEmojiShortcode(s, roomID, reactionKey) : undefined))
+  const shortcode = knownShortcode ?? reactors?.find(reactor => reactor.shortcode)?.shortcode?.replaceAll(':', '')
   const extra = reactors ? reactors.length - names.length : 0
-  const label = reactionKey.startsWith('mxc://') ? 'this emoji' : reactionKey
+  const label = custom ? (shortcode ? `:${shortcode}:` : 'a custom emoji') : reactionKey
 
   return (
     <Tooltip.Root delayDuration={250} onOpenChange={open => open && loadReactionDetails(roomID, evt).catch(() => {})}>
@@ -722,7 +729,7 @@ function ReactionChip({ roomID, evt, reactionKey, count, reactors, own, onToggle
           aria-label={`${reactionKey} ${count}${own ? ', including you' : ''}`}
           className="reaction-chip flex h-6 items-center gap-1 rounded-full px-2 text-xs transition hover:brightness-110"
         >
-          {reactionKey.startsWith('mxc://') ? <img src={mediaURL(reactionKey)} alt="" className="size-4 object-contain" /> : <span>{reactionKey}</span>}
+          {custom ? <img src={mediaURL(reactionKey)} alt={label} className="size-4 object-contain" /> : <span>{reactionKey}</span>}
           <span className="tabular-nums text-muted">{count}</span>
         </button>
       </Tooltip.Trigger>
@@ -750,8 +757,13 @@ async function copyToClipboard(text: string, success: string) {
   }
 }
 
-function react(roomID: RoomID, eventID: EventID, key: string) {
-  client.sendReaction(roomID, eventID, key).catch(err => showToast(`Couldn't react: ${errorText(err)}`))
+function react(roomID: RoomID, eventID: EventID, key: string, shortcode?: string) {
+  client.sendReaction(roomID, eventID, key, shortcode).catch(err => showToast(`Couldn't react: ${errorText(err)}`))
+}
+
+function reactWith(roomID: RoomID, eventID: EventID, selection: PickerSelection) {
+  if (selection.kind === 'unicode') react(roomID, eventID, selection.text)
+  else react(roomID, eventID, selection.emoji.key, selection.emoji.shortcode)
 }
 
 function ActionButton({ label, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
@@ -822,7 +834,7 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
           <span className="text-base leading-none">{key}</span>
         </ActionButton>
       ))}
-      <ReactionPicker open={pickerOpen} onOpenChange={setPickerOpen} onSelect={key => react(roomID, evt.event_id, key)}>
+      <ReactionPicker roomID={roomID} open={pickerOpen} onOpenChange={setPickerOpen} onSelect={selection => reactWith(roomID, evt.event_id, selection)}>
         <ActionButton label="Add reaction">
           <SmilePlus size={16} />
         </ActionButton>
