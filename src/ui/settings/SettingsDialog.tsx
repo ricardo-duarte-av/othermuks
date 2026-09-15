@@ -19,7 +19,9 @@ import {
 } from '@/store/preferences'
 import { closeSettings, showToast, useUI } from '@/store/ui'
 import { pushDeviceID, useWebPush, type WebPushStatus } from '@/store/webpush'
+import { clearRoomCache } from '@/store/cache'
 import { fallbackDisplayName } from '@/store/events'
+import { clearMediaCache } from '@/store/mediacache'
 import { setIgnored, useIgnoredUsers } from '@/store/ignored'
 import { loadProfile, useProfiles } from '@/store/profiles'
 import { Avatar, Spinner } from '@/ui/primitives'
@@ -40,7 +42,60 @@ const COLUMNS: Column[] = [
   { context: PreferenceContext.RoomDevice, label: 'Room · device', hint: 'Only this room, only in this browser', icons: [Hash, Monitor], room: true },
 ]
 
-const GROUPS: PreferenceGroup[] = ['Privacy', 'Timeline', 'Media', 'Composer', 'Code', 'Room list', 'Widgets', 'Notifications']
+const GROUPS: PreferenceGroup[] = ['Privacy', 'Timeline', 'Media', 'Composer', 'Code', 'Room list', 'Widgets', 'Storage', 'Notifications']
+
+function formatStorage(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+}
+
+/** Storage used by this site (room cache, media cache and the rest) and a way to clear the caches. */
+function StorageRow({ columns }: { columns: number }) {
+  const [usage, setUsage] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const refresh = () => {
+    navigator.storage
+      ?.estimate()
+      .then(estimate => setUsage(estimate.usage ?? null))
+      .catch(() => setUsage(null))
+  }
+  useEffect(refresh, [])
+
+  const clear = async () => {
+    setBusy(true)
+    try {
+      await Promise.all([clearRoomCache(), clearMediaCache()])
+      showToast('Cached rooms and media cleared. Reloading…')
+      setTimeout(() => location.reload(), 900)
+    } catch (err) {
+      showToast(`Couldn't clear the cache: ${errorText(err)}`)
+      setBusy(false)
+      refresh()
+    }
+  }
+
+  return (
+    <div role="row" className="contents">
+      <div
+        role="cell"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 py-2 text-xs text-muted"
+        style={{ gridColumn: `1 / span ${columns + 1}` }}
+      >
+        <span>{usage === null ? 'Storage use unknown.' : `This site uses ${formatStorage(usage)} in this browser.`}</span>
+        <button
+          type="button"
+          onClick={() => void clear()}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-xs text-fg transition-colors hover:bg-hover disabled:opacity-60"
+        >
+          {busy && <Spinner size={11} />} Clear cached rooms and media
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const PUSH_STATUS_TEXT: Record<WebPushStatus, string> = {
   unsupported: "This browser can't receive web push here: it needs HTTPS and service worker and push support.",
@@ -217,6 +272,7 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
                   <PreferenceRow key={key} prefKey={key} pref={pref} columns={columns} values={values} roomID={roomID} />
                 ))}
                 {group === 'Notifications' && <WebPushStatusRow columns={columns.length} />}
+                {group === 'Storage' && <StorageRow columns={columns.length} />}
               </Fragment>
             )
           })}

@@ -13,7 +13,9 @@ import { client, type ReceivedEvent } from '@/api/client'
 import { formatMs, formatSize, log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
 import { handleRPCEvent, useChat } from './chat'
+import { applyCachedSession, clearRoomCache, openRoomCache } from './cache'
 import { loadSubscribedPacks } from './emoji'
+import { clearMediaCache, setupMediaCache } from './mediacache'
 import { getPreference, useLocalPrefs } from './preferences'
 import { wireWebPush } from './webpush'
 import { applyTheme, codeblockStyleFor, setCodeblockCSS, useUI } from './ui'
@@ -143,9 +145,24 @@ function wireClient() {
   })
 }
 
-function startSession() {
+/** Identifies the backend a cache belongs to, so switching backends never mixes rooms. */
+const cacheOwner = () => (client.backend.mode === 'remote' ? `remote:${client.backend.baseURL}` : `same-origin:${location.origin}`)
+
+async function startSession() {
   wireClient()
   useSession.setState({ phase: 'ready', error: null })
+  void setupMediaCache()
+  try {
+    const cached = await openRoomCache(cacheOwner())
+    if (cached) {
+      applyCachedSession(cached, handleRPCEvent)
+      client.setCatchupTimestamp(cached.serverTimestamp)
+      log.info(`restored ${cached.roomCount} rooms from the cache (synced ${new Date(cached.serverTimestamp).toLocaleString()})`)
+      markOnce('rooms restored from cache', `${cached.roomCount} rooms`)
+    }
+  } catch (err) {
+    log.warn('room cache unavailable, doing a full sync', err)
+  }
   client.start()
   codeblockStyle = ''
   refreshCodeblockStyle()
@@ -277,5 +294,16 @@ export async function signIn(username: string, password: string, remember: boole
 /** Remote mode: forgets the stored password and returns to the sign-in screen. */
 export function signOut() {
   forgetPassword()
-  location.reload()
+  void Promise.all([clearRoomCache(), clearMediaCache()]).finally(() => location.reload())
 }
+
+/** Stops keeping rooms and media on this device when the cache setting is turned off. */
+let cacheEnabled: boolean | null = null
+useLocalPrefs.subscribe(() => {
+  const next = getPreference('cache_on_device')
+  if (cacheEnabled === null) cacheEnabled = next
+  if (next === cacheEnabled) return
+  cacheEnabled = next
+  if (!next) void Promise.all([clearRoomCache(), clearMediaCache()])
+  else if (useSession.getState().phase === 'ready') void setupMediaCache()
+})

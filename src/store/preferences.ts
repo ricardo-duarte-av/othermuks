@@ -27,7 +27,7 @@ const deviceOnly: PreferenceContext[] = [PreferenceContext.Device]
 
 export type PreferenceValue = boolean | number | string
 
-export type PreferenceGroup = 'Privacy' | 'Notifications' | 'Timeline' | 'Media' | 'Composer' | 'Code' | 'Room list' | 'Widgets'
+export type PreferenceGroup = 'Privacy' | 'Notifications' | 'Timeline' | 'Media' | 'Composer' | 'Code' | 'Room list' | 'Widgets' | 'Storage'
 
 export interface Preference<T extends PreferenceValue = PreferenceValue> {
   displayName: string
@@ -70,6 +70,14 @@ export const preferences = {
     true,
   ),
   send_typing_notifications: bool('Privacy', 'Send typing notifications', 'Should typing notifications be sent to other users?', true),
+
+  cache_on_device: bool(
+    'Storage',
+    'Cache rooms and media on this device',
+    'Keep the room list and media in this browser, so othermuks starts faster and downloads less. Media caching applies when the gomuks backend is on another site (e.g. othermuks on GitHub Pages). Turning this off deletes the cached data.',
+    true,
+    deviceOnly,
+  ),
 
   web_push: bool(
     'Notifications',

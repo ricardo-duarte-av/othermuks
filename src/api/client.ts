@@ -131,6 +131,11 @@ export class GomuksClient {
     log.info(backend.mode === 'remote' ? `backend: ${backend.baseURL} (remote, basic auth)` : 'backend: this site (same origin, cookie auth)')
   }
 
+  /** Resume from cached state: the first connection then asks only for changes since this server time. */
+  setCatchupTimestamp(serverTimestamp: number) {
+    this.#serverTS = serverTimestamp
+  }
+
   url(path: string): string {
     return this.#backend.mode === 'remote' ? `${this.#backend.baseURL}/_gomuks/${path}` : `/_gomuks/${path}`
   }

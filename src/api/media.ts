@@ -5,6 +5,9 @@ import type { ContentURI, UserID } from './types'
 // <img>/<video> can't send an Authorization header.
 let backendBaseURL: string | null = null
 let imageAuthToken: string | null = null
+/** The media service worker adds the token itself, so URLs stay stable and cacheable (store/mediacache). */
+let stableURLs = false
+const tokenListeners = new Set<(token: string) => void>()
 
 export function setMediaBackend(baseURL: string | null) {
   backendBaseURL = baseURL
@@ -12,6 +15,17 @@ export function setMediaBackend(baseURL: string | null) {
 
 export function setImageAuthToken(token: string) {
   imageAuthToken = token
+  for (const listener of tokenListeners) listener(token)
+}
+
+export const getImageAuthToken = () => imageAuthToken
+
+export function onImageAuthToken(listener: (token: string) => void) {
+  tokenListeners.add(listener)
+}
+
+export function setStableMediaURLs(stable: boolean) {
+  stableURLs = stable
 }
 
 const apiRoot = () => (backendBaseURL ? `${backendBaseURL}/_gomuks/` : '/_gomuks/')
@@ -19,7 +33,7 @@ const apiRoot = () => (backendBaseURL ? `${backendBaseURL}/_gomuks/` : '/_gomuks
 /** URL for a gomuks media path such as "media/server/id?encrypted=false". */
 export function gomuksMediaURL(path: string): string {
   const url = apiRoot() + path
-  if (!backendBaseURL || !imageAuthToken) return url
+  if (!backendBaseURL || !imageAuthToken || stableURLs) return url
   return `${url}${url.includes('?') ? '&' : '?'}image_auth=${encodeURIComponent(imageAuthToken)}`
 }
 
