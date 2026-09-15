@@ -1,8 +1,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { ArrowLeftRight, LogOut, Server } from 'lucide-react'
+import { ArrowLeftRight, LogOut, Server, Settings } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useChat } from '@/store/chat'
 import { showBackendPicker, signOut, useSession } from '@/store/session'
+import { openSettings } from '@/store/ui'
 import { Avatar } from '@/ui/primitives'
 
 const itemClass =
@@ -42,6 +43,10 @@ export function AccountMenu({ expanded }: { expanded: boolean }) {
             <div className="truncate text-sm font-semibold">{clientState.displayname ?? clientState.user_id}</div>
             <div className="truncate text-xs text-muted">{clientState.user_id}</div>
           </div>
+          <DropdownMenu.Separator className="my-1 h-px bg-border" />
+          <DropdownMenu.Item onSelect={() => requestAnimationFrame(() => openSettings())} className={itemClass}>
+            <Settings size={15} className="text-muted" /> Settings…
+          </DropdownMenu.Item>
           <DropdownMenu.Separator className="my-1 h-px bg-border" />
           <DropdownMenu.Label className="flex items-center gap-2 px-2 py-1 text-xs text-muted">
             <Server size={13} />

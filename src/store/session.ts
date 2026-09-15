@@ -13,7 +13,8 @@ import { client, type ReceivedEvent } from '@/api/client'
 import { formatMs, formatSize, log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
 import { handleRPCEvent, useChat } from './chat'
-import { applyTheme, codeblockStyleFor, setCodeblockCSS, useUI, type ThemeID } from './ui'
+import { getPreference, useLocalPrefs } from './preferences'
+import { applyTheme, codeblockStyleFor, setCodeblockCSS, useUI } from './ui'
 
 type Phase = 'checking' | 'backend' | 'login' | 'ready' | 'error'
 
@@ -94,14 +95,30 @@ function logEvent({ evt, bytes, parseMs }: ReceivedEvent, applyMs: number) {
   }
 }
 
-async function loadCodeblockStyle(theme: ThemeID) {
-  const style = codeblockStyleFor(theme)
-  try {
-    setCodeblockCSS(await client.fetchText(`codeblock/${style}.css`))
-  } catch (err) {
-    log.debug(`couldn't load code highlighting style ${style}`, err)
-  }
+let codeblockStyle = ''
+
+/** Loads the code highlighting CSS for the code_block_theme preference ("auto" follows the app theme). */
+function refreshCodeblockStyle() {
+  if (useSession.getState().phase !== 'ready') return
+  const pref = getPreference('code_block_theme')
+  const style = pref === 'auto' ? codeblockStyleFor(useUI.getState().theme) : pref
+  if (style === codeblockStyle) return
+  codeblockStyle = style
+  client.fetchText(`codeblock/${style}.css`).then(
+    css => {
+      if (codeblockStyle === style) setCodeblockCSS(css)
+    },
+    err => {
+      if (codeblockStyle === style) codeblockStyle = ''
+      log.debug(`couldn't load code highlighting style ${style}`, err)
+    },
+  )
 }
+
+useChat.subscribe((state, prev) => {
+  if (state.accountData !== prev.accountData) refreshCodeblockStyle()
+})
+useLocalPrefs.subscribe(refreshCodeblockStyle)
 
 let wired = false
 
@@ -125,7 +142,8 @@ function startSession() {
   wireClient()
   useSession.setState({ phase: 'ready', error: null })
   client.start()
-  void loadCodeblockStyle(useUI.getState().theme)
+  codeblockStyle = ''
+  refreshCodeblockStyle()
 }
 
 export async function bootstrap() {
@@ -134,7 +152,7 @@ export async function bootstrap() {
   useUI.subscribe((state, prev) => {
     if (state.theme === prev.theme) return
     applyTheme(state.theme)
-    if (useSession.getState().phase === 'ready') void loadCodeblockStyle(state.theme)
+    refreshCodeblockStyle()
   })
 
   try {

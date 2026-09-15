@@ -28,6 +28,7 @@ import type {
 } from '@/api/types'
 import { markOnce } from '@/lib/perf'
 import { isPendingEvent, normalizeEvent, threadRootOf, type TimelineEvent } from './events'
+import { getPreference } from './preferences'
 
 /** A user's latest read receipt in the main timeline, resolved to the event's rowid. */
 export interface RoomReceipt extends DBReceipt {
@@ -569,7 +570,8 @@ export function markRoomRead(roomID: RoomID, evt: TimelineEvent, force = false) 
   const unread = meta.unread_messages || meta.unread_notifications || meta.unread_highlights || meta.marked_unread
   if (!unread && !force) return
   lastMarkedRead.set(roomID, evt.event_id)
-  client.markRead(roomID, evt.event_id).catch(err => {
+  const receiptType = getPreference('send_read_receipts', roomID) ? 'm.read' : 'm.read.private'
+  client.markRead(roomID, evt.event_id, receiptType).catch(err => {
     console.error('Failed to mark read', roomID, err)
     lastMarkedRead.delete(roomID)
   })

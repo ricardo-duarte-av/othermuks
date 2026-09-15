@@ -1,4 +1,4 @@
-import { Lock, PanelRight, Search, Upload } from 'lucide-react'
+import { Lock, PanelRight, Search, Settings2, Upload } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -8,7 +8,7 @@ import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
-import { useUI } from '@/store/ui'
+import { openSettings, useUI } from '@/store/ui'
 import { Avatar, IconButton } from '@/ui/primitives'
 import { ContextTimeline } from '@/ui/timeline/ContextTimeline'
 import { Timeline } from '@/ui/timeline/Timeline'
@@ -30,6 +30,9 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
       </div>
       <IconButton label="Search" shortcut="Ctrl K" onClick={() => useUI.setState({ paletteOpen: true })}>
         <Search size={17} />
+      </IconButton>
+      <IconButton label="Room settings" onClick={() => openSettings(roomID)}>
+        <Settings2 size={17} />
       </IconButton>
       <IconButton
         label="Room details"

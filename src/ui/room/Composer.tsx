@@ -1,10 +1,11 @@
 import { Paperclip, Pencil, Reply, SendHorizontal, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { client } from '@/api/client'
-import type { EventID, RoomID } from '@/api/types'
+import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
-import { displayContent } from '@/store/events'
+import { displayContent, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
+import { usePreference } from '@/store/preferences'
 import { useDisplayName } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { useUI } from '@/store/ui'
@@ -30,6 +31,11 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const editing = useChat(s => (editingRowID == null ? undefined : s.events[editingRowID]))
   const roomName = useChat(s => s.rooms[roomID]?.meta.name)
   const replyName = useDisplayName(roomID, replyTo?.sender)
+
+  const sendTyping = usePreference('send_typing_notifications', roomID)
+  const ctrlEnterSend = usePreference('ctrl_enter_send', roomID)
+  const ctrlArrowReply = usePreference('ctrl_arrow_reply', roomID)
+  const refocusAfterSend = usePreference('refocus_input_after_send', roomID)
 
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -105,14 +111,44 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     }
   }
 
+  /** Ctrl+↑/↓ moves the reply target through the timeline (↓ past the newest message clears it). */
+  function stepReply(delta: -1 | 1): boolean {
+    const { rooms, events } = useChat.getState()
+    const candidates: EventRowID[] = []
+    if (threadRoot) {
+      for (const rowid of useChat.getState().threads[threadRoot] ?? []) candidates.push(rowid)
+    } else {
+      for (const tuple of rooms[roomID]?.timeline ?? []) {
+        const evt = events[tuple.event_rowid]
+        if (evt && isMessageLike(evt) && isRenderable(evt) && !isPendingEvent(evt)) candidates.push(evt.rowid)
+      }
+    }
+    if (!candidates.length) return false
+    const index = replyToRowID == null ? -1 : candidates.indexOf(replyToRowID)
+    let next: EventRowID | null
+    if (index < 0) {
+      if (delta > 0) return false
+      next = candidates[candidates.length - 1]
+    } else if (index + delta >= candidates.length) {
+      next = null
+    } else {
+      next = candidates[Math.max(0, index + delta)]
+    }
+    useUI.setState({ replyTo: next, editing: null, composerScope: scope })
+    return true
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    const mod = e.ctrlKey || e.metaKey
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (!ctrlEnterSend || mod)) {
       e.preventDefault()
       void submit()
     } else if (e.key === 'Escape' && (replyTo || editing)) {
       e.preventDefault()
       cancelContext()
-    } else if (e.key === 'ArrowUp' && !text && !editing) {
+    } else if (mod && ctrlArrowReply && !editing && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (stepReply(e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault()
+    } else if (e.key === 'ArrowUp' && !mod && !text && !editing) {
       const last = findLastOwnEditable(roomID, threadRoot)
       if (last) {
         e.preventDefault()
@@ -123,6 +159,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
 
   function onChange(value: string) {
     setText(value)
+    if (!sendTyping) return
     if (!value) {
       stopTyping()
     } else if (Date.now() - typingSentAt.current > TYPING_RESEND) {
@@ -176,7 +213,16 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           }}
           className="max-h-60 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[15px] leading-5 outline-none [field-sizing:content] placeholder:text-muted"
         />
-        <IconButton label="Send" shortcut="Enter" onClick={() => void submit()} disabled={!text.trim()} className="enabled:text-accent">
+        <IconButton
+          label="Send"
+          shortcut={ctrlEnterSend ? 'Ctrl Enter' : 'Enter'}
+          onClick={() => {
+            void submit()
+            if (refocusAfterSend) inputRef.current?.focus()
+          }}
+          disabled={!text.trim()}
+          className="enabled:text-accent"
+        >
           <SendHorizontal size={17} />
         </IconButton>
         <input

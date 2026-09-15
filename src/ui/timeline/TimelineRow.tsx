@@ -4,6 +4,7 @@ import {
   Code,
   Copy,
   Ellipsis,
+  Eye,
   FileText,
   History,
   Link2,
@@ -34,9 +35,11 @@ import {
   isFailedSend,
   isMessageLike,
   isPendingEvent,
+  previewText,
   type TimelineEvent,
 } from '@/store/events'
 import { useMember } from '@/store/hooks'
+import { usePreference } from '@/store/preferences'
 import { jumpToEvent, openMatrixTarget } from '@/store/navigation'
 import { loadReactionDetails, reactionSignature, useReactionDetails, type Reactor } from '@/store/reactions'
 import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
@@ -136,6 +139,10 @@ interface MessageRowProps {
 }
 
 function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) {
+  const codeWrap = usePreference('code_block_line_wrap', roomID)
+  const inlineImages = usePreference('show_inline_images', roomID)
+  const maxImageWidth = usePreference('max_image_width', roomID)
+  const smallReplies = usePreference('small_replies', roomID)
   const member = useMember(roomID, evt.sender)
   const lastEdit = useChat(s => (evt.last_edit_rowid ? s.events[evt.last_edit_rowid] : undefined))
   const highlighted = useUI(s => s.highlight?.rowid === evt.rowid)
@@ -156,6 +163,9 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
       data-failed={failed || undefined}
       data-redacted={evt.redacted_by ? true : undefined}
       data-highlight={highlighted || undefined}
+      data-code-wrap={codeWrap || undefined}
+      data-hide-inline-images={!inlineImages || undefined}
+      style={{ '--max-image-width': `${maxImageWidth}px` } as CSSProperties}
     >
       <div className="flex w-10 shrink-0 justify-end">
         {compact ? (
@@ -184,7 +194,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot }: MessageRowProps) 
             </time>
           </div>
         )}
-        {replyTo && <ReplyPreview roomID={roomID} eventID={replyTo} />}
+        {replyTo && <ReplyPreview roomID={roomID} eventID={replyTo} small={smallReplies} />}
         <MessageContent roomID={roomID} evt={evt} content={content} localContent={localContent} senderName={name} />
         {lastEdit && !evt.redacted_by && (
           <button
@@ -280,7 +290,7 @@ function MessageContent({ roomID, evt, content, localContent, senderName }: Cont
       return (
         <>
           {hasCaption && <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} />}
-          <MediaContent content={content} msgtype={msgtype} />
+          <MediaContent roomID={roomID} content={content} msgtype={msgtype} />
         </>
       )
     }
@@ -353,7 +363,7 @@ function handleMessageBodyClick(e: MouseEvent<HTMLElement>) {
     void openMatrixTarget(matrixTarget)
     return
   }
-  if (target.tagName !== 'IMG' || target.hasAttribute('data-mx-emoticon')) return
+  if (target.tagName !== 'IMG' || target.hasAttribute('data-mx-emoticon') || target.classList.contains('hicli-custom-emoji')) return
   const src = (target as HTMLImageElement).currentSrc || target.getAttribute('src')
   if (!src) return
   e.preventDefault()
@@ -363,6 +373,7 @@ function handleMessageBodyClick(e: MouseEvent<HTMLElement>) {
 
 function TextBody({ content, localContent, msgtype, senderName, className, allowBigEmoji = true }: TextBodyProps) {
   const html = localContent?.sanitized_html
+  const formattedBody = (content as { formatted_body?: unknown }).formatted_body
   return (
     <div
       className={cn('message-body text-[15px]', msgtype === 'm.notice' && 'text-muted', className)}
@@ -371,7 +382,10 @@ function TextBody({ content, localContent, msgtype, senderName, className, allow
     >
       {msgtype === 'm.emote' && <span className="font-medium">* {senderName} </span>}
       {html ? (
-        <div className="contents" dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }} />
+        <div
+          className="contents"
+          dangerouslySetInnerHTML={{ __html: sanitizeHTML(html, typeof formattedBody === 'string' ? formattedBody : undefined) }}
+        />
       ) : (
         <span className="whitespace-pre-wrap">{content.body}</span>
       )}
@@ -424,26 +438,53 @@ function FadeInImage({ src, alt, placeholder }: { src: string; alt: string; plac
 const placeholderStyle = (placeholder: string | undefined): CSSProperties | undefined =>
   placeholder ? { backgroundImage: `url(${placeholder})`, backgroundSize: '100% 100%' } : undefined
 
-function MediaContent({ content, msgtype }: { content: MessageEventContent; msgtype: string }) {
+function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: MessageEventContent; msgtype: string }) {
+  const showPreviews = usePreference('show_media_previews', roomID)
+  const autoplayGifs = usePreference('autoplay_gifs', roomID)
+  const maxWidth = usePreference('max_image_width', roomID)
+  const [revealed, setRevealed] = useState(false)
+  const [hovering, setHovering] = useState(false)
   const { url, thumbnail, inline } = mediaSources(content)
   const info = content.info ?? {}
   if (!url) return <p className="text-sm italic text-muted">Invalid media</p>
 
   const placeholder = blurhashDataURL(blurhashOf(info))
   const isSticker = msgtype === 'm.sticker'
-  const size = fitSize(info.w, info.h, isSticker ? 180 : 420, isSticker ? 180 : 340)
+  const maxHeight = Math.max(340, Math.round(maxWidth * 0.8))
+  const size = fitSize(info.w, info.h, isSticker ? 180 : maxWidth, isSticker ? 180 : maxHeight)
   const boxStyle = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined
   const name = content.filename ?? content.body
+
+  // show_media_previews off: nothing is downloaded until the user asks for it.
+  if (!showPreviews && !revealed && (msgtype === 'm.image' || msgtype === 'm.sticker' || msgtype === 'm.video')) {
+    return (
+      <button
+        type="button"
+        onClick={() => setRevealed(true)}
+        className="media-hidden mt-1 grid max-w-full place-items-center overflow-hidden rounded-lg border border-border bg-surface text-sm text-muted transition-colors hover:text-fg"
+        style={{ ...(boxStyle ?? { width: Math.min(maxWidth, 320), aspectRatio: '4 / 3' }), ...placeholderStyle(placeholder) }}
+      >
+        <span className="flex items-center gap-1.5 rounded-full bg-bg/80 px-3 py-1 backdrop-blur-sm">
+          <Eye size={14} /> Show {msgtype === 'm.video' ? 'video' : 'image'}
+        </span>
+      </button>
+    )
+  }
 
   switch (msgtype) {
     case 'm.image':
     case 'm.sticker': {
-      const src = isSticker ? url : (inline ?? url)
+      // autoplay_gifs off: a GIF shows its still thumbnail until hovered.
+      const pauseGif = info.mimetype === 'image/gif' && !autoplayGifs && !!thumbnail
+      const still = pauseGif && !hovering ? thumbnail : undefined
+      const src = still ?? (isSticker ? url : (inline ?? url))
       return (
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
+          onMouseEnter={pauseGif ? () => setHovering(true) : undefined}
+          onMouseLeave={pauseGif ? () => setHovering(false) : undefined}
           onClick={e => {
             // Plain clicks open the lightbox; middle/modifier clicks keep opening a new tab.
             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
@@ -454,7 +495,7 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
             'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
             !isSticker && 'border border-border bg-surface',
           )}
-          style={{ ...(boxStyle ?? { maxWidth: 420 }), ...placeholderStyle(placeholder) }}
+          style={{ ...(boxStyle ?? { maxWidth }), ...placeholderStyle(placeholder) }}
         >
           <FadeInImage key={src} src={src} alt={content.body} placeholder={placeholder} />
         </a>
@@ -468,7 +509,7 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
           controls
           preload="none"
           className={cn('media-video mt-1 max-w-full rounded-lg', !placeholder && 'bg-black')}
-          style={{ ...(boxStyle ?? { width: 420 }), ...placeholderStyle(placeholder) }}
+          style={{ ...(boxStyle ?? { width: Math.min(420, maxWidth) }), ...placeholderStyle(placeholder) }}
         />
       )
     case 'm.audio':
@@ -490,7 +531,7 @@ function MediaContent({ content, msgtype }: { content: MessageEventContent; msgt
   }
 }
 
-function ReplyPreview({ roomID, eventID }: { roomID: RoomID; eventID: EventID }) {
+function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; eventID: EventID; small?: boolean }) {
   const evt = useChat(s => {
     const rowid = s.eventIDs[eventID]
     return rowid === undefined ? undefined : s.events[rowid]
@@ -512,23 +553,43 @@ function ReplyPreview({ roomID, eventID }: { roomID: RoomID; eventID: EventID })
   const name = displayNameOf(evt.sender, member)
   const color = userColor(evt.sender)
   const jump = () => jumpToEvent(roomID, eventID)
+  const interactive = {
+    role: 'button',
+    tabIndex: 0,
+    title: 'Jump to message',
+    onClick: (e: MouseEvent<HTMLElement>) => {
+      // Links inside the quoted message keep working.
+      if ((e.target as HTMLElement).closest('a')) return
+      jump()
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        jump()
+      }
+    },
+  }
+
+  if (small) {
+    // Compact (Discord-like) style: one line above the message.
+    return (
+      <div
+        {...interactive}
+        className="reply-preview reply-preview-small mb-0.5 flex min-w-0 cursor-pointer items-center gap-1.5 text-[13px] text-muted outline-none transition-colors hover:text-fg focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <Reply size={12} className="shrink-0 -scale-x-100" />
+        <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={14} />
+        <span className="shrink-0 font-medium" style={{ color }} title={evt.sender}>
+          {name}
+        </span>
+        <span className="min-w-0 truncate">{lastEdit && !evt.redacted_by ? (displayContent(evt, lastEdit).content.body ?? '') : previewText(evt)}</span>
+      </div>
+    )
+  }
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      title="Jump to message"
-      onClick={e => {
-        // Links inside the quoted message keep working.
-        if ((e.target as HTMLElement).closest('a')) return
-        jump()
-      }}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          jump()
-        }
-      }}
+      {...interactive}
       className="reply-preview my-1 flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border-l-2 bg-surface/60 py-1 pl-2.5 pr-3 text-[13px] outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent"
       style={{ borderColor: color }}
     >

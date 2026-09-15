@@ -82,13 +82,51 @@ export function isMessageLike(evt: TimelineEvent): boolean {
   return evt.type === 'm.room.message' || evt.type === 'm.sticker' || evt.type === 'm.room.encrypted'
 }
 
+/** Timeline visibility preferences (see store/preferences). */
+export interface TimelineFilter {
+  showHidden: boolean
+  showRedacted: boolean
+  showMembership: boolean
+  showProfileChanges: boolean
+}
+
+export const DEFAULT_TIMELINE_FILTER: TimelineFilter = {
+  showHidden: true,
+  showRedacted: true,
+  showMembership: true,
+  showProfileChanges: true,
+}
+
+const UNREDACTABLE_TYPES = new Set(['m.room.power_levels', 'm.room.create', 'm.room.member'])
+
+/** Events that exist but carry nothing to show, e.g. a member event that changes nothing (gomuks's rule). */
+function isHiddenEvent(evt: TimelineEvent): boolean {
+  if (evt.type === 'm.room.server_acl') return true
+  if (evt.type !== 'm.room.member') return false
+  const prev = evt.unsigned.prev_content as Partial<MemberEventContent> | undefined
+  return (
+    !!prev &&
+    prev.membership === evt.content.membership &&
+    prev.displayname === evt.content.displayname &&
+    prev.avatar_url === evt.content.avatar_url
+  )
+}
+
 /**
  * Whether an event gets its own row in the main timeline. Edits and reactions are folded into
- * their targets, and thread replies live in the thread panel.
+ * their targets, thread replies live in the thread panel, and the filter hides what the user chose.
  */
-export function isRenderable(evt: TimelineEvent): boolean {
+export function isRenderable(evt: TimelineEvent, filter: TimelineFilter = DEFAULT_TIMELINE_FILTER): boolean {
   if (evt.relation_type === 'm.replace' || threadRootOf(evt)) return false
-  return isMessageLike(evt) || (evt.state_key !== undefined && STATE_TYPES.has(evt.type))
+  if (!isMessageLike(evt) && !(evt.state_key !== undefined && STATE_TYPES.has(evt.type))) return false
+  if (evt.type === 'm.room.member') {
+    if (!filter.showMembership) return false
+    const prev = evt.unsigned.prev_content as Partial<MemberEventContent> | undefined
+    if (!filter.showProfileChanges && prev?.membership === evt.content.membership) return false
+  }
+  if (evt.redacted_by && !filter.showRedacted && !UNREDACTABLE_TYPES.has(evt.type)) return false
+  if (!filter.showHidden && isHiddenEvent(evt)) return false
+  return true
 }
 
 /** Content to display for a message, taking the latest edit into account. */

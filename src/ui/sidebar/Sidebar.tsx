@@ -8,7 +8,8 @@ import { formatRoomTime } from '@/lib/format'
 import { markOnce } from '@/lib/perf'
 import { useChat } from '@/store/chat'
 import { fallbackDisplayName, isMessageLike, previewText } from '@/store/events'
-import { FAVOURITE_TAG, isRoomMuted, roomTagsOf } from '@/store/roomActions'
+import { usePreference, useRoomSort } from '@/store/preferences'
+import { FAVOURITE_TAG, isRoomMuted, LOW_PRIORITY_TAG, roomTagsOf } from '@/store/roomActions'
 import { DM_SPACE, HOME_SPACE, spaceListRows } from '@/store/spaces'
 import { openRoom, setSidebarWidth, SIDEBAR_DEFAULT_WIDTH, useUI } from '@/store/ui'
 import { Avatar, Kbd } from '@/ui/primitives'
@@ -16,6 +17,7 @@ import { ResizeHandle } from '@/ui/ResizeHandle'
 import { LeaveRoomDialog, RoomContextMenu } from './RoomContextMenu'
 
 const ROOM_ROW_HEIGHT = 56
+const COMPACT_ROOM_ROW_HEIGHT = 36
 const SECTION_HEADER_HEIGHT = 32
 
 /** Falls back to Home when the remembered space was left or hasn't synced. */
@@ -35,10 +37,18 @@ function SidebarHeader({ spaceID }: { spaceID: string }) {
   )
 }
 
-const RoomListItem = memo(function RoomListItem({ roomID, active }: { roomID: RoomID; active: boolean }) {
+interface RoomListItemProps {
+  roomID: RoomID
+  active: boolean
+  compact: boolean
+  muteLowPriority: boolean
+}
+
+const RoomListItem = memo(function RoomListItem({ roomID, active, compact, muteLowPriority }: RoomListItemProps) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
+  const showPreview = usePreference('room_list_preview', roomID) && !compact
   const preview = useChat(s => {
-    const rowid = s.rooms[roomID]?.meta.preview_event_rowid
+    const rowid = showPreview ? s.rooms[roomID]?.meta.preview_event_rowid : undefined
     return rowid ? s.events[rowid] : undefined
   })
   // Per-room display name from room state when known, otherwise the capitalized localpart.
@@ -49,10 +59,13 @@ const RoomListItem = memo(function RoomListItem({ roomID, active }: { roomID: Ro
     return typeof name === 'string' && name ? name : fallbackDisplayName(preview.sender)
   })
   const favourite = useChat(s => FAVOURITE_TAG in roomTagsOf(s, roomID))
+  const lowPriority = useChat(s => LOW_PRIORITY_TAG in roomTagsOf(s, roomID))
   const muted = useChat(s => isRoomMuted(s, roomID))
   if (!meta) return null
 
-  const count = meta.unread_highlights || meta.unread_notifications || meta.unread_messages
+  // mute_low_priority drops plain unread counts in low priority rooms; notifications still count.
+  const unreadMessages = lowPriority && muteLowPriority ? 0 : meta.unread_messages
+  const count = meta.unread_highlights || meta.unread_notifications || unreadMessages
   const level = meta.unread_highlights ? 'highlight' : meta.unread_notifications ? 'notify' : 'normal'
   const unread = count > 0 || meta.marked_unread
   const isEmote = preview?.content.msgtype === 'm.emote' && !preview.redacted_by
@@ -67,10 +80,14 @@ const RoomListItem = memo(function RoomListItem({ roomID, active }: { roomID: Ro
         data-unread={unread || undefined}
         data-muted={muted || undefined}
         data-favourite={favourite || undefined}
+        data-compact={compact || undefined}
         aria-current={active || undefined}
-        className="room-list-item flex h-[52px] w-full items-center gap-3 rounded-lg px-2 text-left transition-colors data-[state=open]:bg-hover"
+        className={cn(
+          'room-list-item flex w-full items-center gap-3 rounded-lg px-2 text-left transition-colors data-[state=open]:bg-hover',
+          compact ? 'h-8 gap-2' : 'h-[52px]',
+        )}
       >
-        <Avatar mxc={meta.avatar} id={meta.dm_user_id ?? roomID} name={meta.name} size={36} />
+        <Avatar mxc={meta.avatar} id={meta.dm_user_id ?? roomID} name={meta.name} size={compact ? 24 : 36} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
             <span className={cn('room-name truncate text-sm', unread ? 'font-semibold text-fg' : 'font-medium text-fg/85')}>
@@ -78,24 +95,34 @@ const RoomListItem = memo(function RoomListItem({ roomID, active }: { roomID: Ro
             </span>
             {favourite && <Star size={11} className="room-favourite shrink-0 self-center fill-current text-accent" aria-label="Favourite" />}
             {muted && <BellOff size={11} className="room-muted shrink-0 self-center text-muted" aria-label="Muted" />}
-            <span className="room-time ml-auto shrink-0 pl-1 text-[11px] tabular-nums text-muted">{formatRoomTime(meta.sorting_timestamp)}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={cn('room-preview truncate text-xs', unread ? 'text-fg/75' : 'text-muted')}>
-              {showSender && <span className="room-preview-sender font-medium text-fg/80">{senderName}: </span>}
-              {isEmote ? `* ${senderName} ${preview.content.body}` : previewText(preview)}
-            </span>
-            {count > 0 && (
-              <span className="unread-badge ml-auto" data-level={muted && level !== 'highlight' ? 'normal' : level}>
-                {count > 99 ? '99+' : count}
-              </span>
+            {compact ? (
+              count > 0 && <UnreadBadge count={count} level={muted && level !== 'highlight' ? 'normal' : level} />
+            ) : (
+              <span className="room-time ml-auto shrink-0 pl-1 text-[11px] tabular-nums text-muted">{formatRoomTime(meta.sorting_timestamp)}</span>
             )}
           </div>
+          {!compact && (
+            <div className="flex items-center gap-2">
+              <span className={cn('room-preview truncate text-xs', unread ? 'text-fg/75' : 'text-muted')}>
+                {showSender && <span className="room-preview-sender font-medium text-fg/80">{senderName}: </span>}
+                {preview && (isEmote ? `* ${senderName} ${preview.content.body}` : previewText(preview))}
+              </span>
+              {count > 0 && <UnreadBadge count={count} level={muted && level !== 'highlight' ? 'normal' : level} />}
+            </div>
+          )}
         </div>
       </button>
     </RoomContextMenu>
   )
 })
+
+function UnreadBadge({ count, level }: { count: number; level: string }) {
+  return (
+    <span className="unread-badge ml-auto" data-level={level}>
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
 
 const SectionHeader = memo(function SectionHeader({ spaceID }: { spaceID: RoomID }) {
   const name = useChat(s => s.rooms[spaceID]?.meta.name)
@@ -107,13 +134,17 @@ const SectionHeader = memo(function SectionHeader({ spaceID }: { spaceID: RoomID
 })
 
 function RoomList({ spaceID }: { spaceID: string }) {
-  const rows = useChat(useShallow(s => spaceListRows(s, spaceID)))
+  const sort = useRoomSort()
+  const compact = usePreference('compact_room_list')
+  const muteLowPriority = usePreference('mute_low_priority')
+  const rows = useChat(useShallow(s => spaceListRows(s, spaceID, sort)))
   const activeRoomID = useUI(s => s.activeRoomID)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const roomRowHeight = compact ? COMPACT_ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: index => (rows[index].startsWith('h:') ? SECTION_HEADER_HEIGHT : ROOM_ROW_HEIGHT),
+    estimateSize: index => (rows[index].startsWith('h:') ? SECTION_HEADER_HEIGHT : roomRowHeight),
     getItemKey: index => rows[index],
     overscan: 8,
     useFlushSync: false,
@@ -122,6 +153,10 @@ function RoomList({ spaceID }: { spaceID: string }) {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 })
   }, [spaceID])
+
+  useEffect(() => {
+    virtualizer.measure()
+  }, [compact, virtualizer])
 
   useEffect(() => {
     if (rows.length) markOnce('room list rendered', `${rows.length} rows`)
@@ -143,7 +178,11 @@ function RoomList({ spaceID }: { spaceID: string }) {
               className="absolute left-0 top-0 w-full py-0.5"
               style={{ height: item.size, transform: `translateY(${item.start}px)` }}
             >
-              {row.startsWith('h:') ? <SectionHeader spaceID={id} /> : <RoomListItem roomID={id} active={id === activeRoomID} />}
+              {row.startsWith('h:') ? (
+                <SectionHeader spaceID={id} />
+              ) : (
+                <RoomListItem roomID={id} active={id === activeRoomID} compact={compact} muteLowPriority={muteLowPriority} />
+              )}
             </div>
           )
         })}

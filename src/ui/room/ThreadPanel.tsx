@@ -5,6 +5,7 @@ import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { fetchEvent, loadThreadPage, useChat } from '@/store/chat'
 import { isMessageLike, type TimelineEvent } from '@/store/events'
+import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
 import { IconButton, Spinner } from '@/ui/primitives'
 import { TimelineRow } from '@/ui/timeline/TimelineRow'
@@ -51,18 +52,19 @@ export function ThreadView({ roomID, rootID }: { roomID: RoomID; rootID: EventID
     }
   }, [roomID, rootID])
 
+  const showDates = usePreference('show_date_separators', roomID)
   const items = useMemo(() => {
     const { events } = useChat.getState()
     let prev: TimelineEvent | undefined
     return replies.map(rowid => {
       const evt = events[rowid]
-      const newDay = !!prev && !!evt && !isSameDay(prev.timestamp, evt.timestamp)
+      const dayChange = !!prev && !!evt && !isSameDay(prev.timestamp, evt.timestamp)
       const compact =
-        !!prev && !!evt && !newDay && isMessageLike(prev) && prev.sender === evt.sender && evt.timestamp - prev.timestamp < GROUP_WINDOW
+        !!prev && !!evt && !dayChange && isMessageLike(prev) && prev.sender === evt.sender && evt.timestamp - prev.timestamp < GROUP_WINDOW
       prev = evt
-      return { rowid, compact, newDay }
+      return { rowid, compact, newDay: dayChange && showDates }
     })
-  }, [replies])
+  }, [replies, showDates])
 
   // Stick to the newest reply, or keep position after loading older ones.
   useLayoutEffect(() => {

@@ -1,6 +1,6 @@
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, ArrowUpFromLine, Bell, BellOff, CheckCheck, LogOut, Star, StarOff } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Bell, BellOff, CheckCheck, LogOut, Settings, Star, StarOff } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
@@ -18,7 +18,7 @@ import {
   toggleRoomTag,
   useLeaveRoomDialog,
 } from '@/store/roomActions'
-import { showToast } from '@/store/ui'
+import { openSettings, showToast } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
 
 const itemClass =
@@ -56,6 +56,9 @@ function RoomMenuItems({ roomID }: { roomID: RoomID }) {
       </Item>
       <Item icon={muted ? <Bell size={15} /> : <BellOff size={15} />} onSelect={() => toggleRoomMute(roomID)}>
         {muted ? 'Unmute' : 'Mute'}
+      </Item>
+      <Item icon={<Settings size={15} />} onSelect={() => requestAnimationFrame(() => openSettings(roomID))}>
+        Room settings…
       </Item>
       <ContextMenu.Separator className="my-1 h-px bg-border" />
       <Item icon={<LogOut size={15} />} onSelect={() => requestAnimationFrame(() => requestLeaveRoom(roomID))} danger>

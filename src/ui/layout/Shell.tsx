@@ -2,6 +2,7 @@ import { AnimatePresence } from 'motion/react'
 import { MessagesSquare } from 'lucide-react'
 import { useEffect } from 'react'
 import { useChat } from '@/store/chat'
+import { getRoomSort } from '@/store/preferences'
 import { roomIDsInRows, spaceListRows } from '@/store/spaces'
 import { openRoom, useUI } from '@/store/ui'
 import { AppearanceDialog } from '@/ui/AppearanceDialog'
@@ -11,6 +12,7 @@ import { Kbd, Spinner } from '@/ui/primitives'
 import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
 import { RightPanel, type RightPanelKind } from '@/ui/room/RightPanel'
 import { RoomView } from '@/ui/room/RoomView'
+import { SettingsDialog } from '@/ui/settings/SettingsDialog'
 import { Sidebar } from '@/ui/sidebar/Sidebar'
 import { SpaceRail } from '@/ui/sidebar/SpaceRail'
 
@@ -24,7 +26,7 @@ function isEditable(target: EventTarget | null) {
 /** Moves to the previous/next room in the currently shown room list. */
 function stepRoom(delta: number) {
   const { activeSpaceID, activeRoomID } = useUI.getState()
-  const roomIDs = roomIDsInRows(spaceListRows(useChat.getState(), activeSpaceID))
+  const roomIDs = roomIDsInRows(spaceListRows(useChat.getState(), activeSpaceID, getRoomSort()))
   const index = roomIDs.indexOf(activeRoomID ?? '')
   const next = roomIDs[Math.min(Math.max(index + delta, 0), roomIDs.length - 1)]
   if (next) openRoom(next)
@@ -36,7 +38,7 @@ function useGlobalShortcuts() {
       const mod = e.ctrlKey || e.metaKey
       const ui = useUI.getState()
       // Modal overlays handle their own keys (Esc closes them, R rotates in the lightbox).
-      const overlayOpen = ui.paletteOpen || !!ui.dialog || !!ui.lightbox || ui.appearanceOpen
+      const overlayOpen = ui.paletteOpen || !!ui.dialog || !!ui.lightbox || ui.appearanceOpen || !!ui.settings
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         useUI.setState({ paletteOpen: !ui.paletteOpen })
@@ -134,6 +136,7 @@ export function Shell() {
       <CommandPalette />
       <MessageDialogs />
       <AppearanceDialog />
+      <SettingsDialog />
       <Lightbox />
       <Toaster />
     </div>

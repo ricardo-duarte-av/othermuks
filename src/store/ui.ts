@@ -56,6 +56,8 @@ interface UIState {
   highlight: { rowid: EventRowID; nonce: number } | null
   lightbox: LightboxImage | null
   dialog: MessageDialog | null
+  /** Settings dialog, optionally showing the room scopes for a room. */
+  settings: { roomID: RoomID | null } | null
   toast: { id: number; message: string } | null
 }
 
@@ -81,6 +83,7 @@ export const useUI = create<UIState>()(
       highlight: null,
       lightbox: null,
       dialog: null,
+      settings: null,
       toast: null,
     }),
     {
@@ -110,6 +113,14 @@ export function openRoom(roomID: RoomID) {
     highlight: null,
     paletteOpen: false,
   })
+}
+
+export function openSettings(roomID: RoomID | null = null) {
+  useUI.setState({ settings: { roomID } })
+}
+
+export function closeSettings() {
+  useUI.setState({ settings: null })
 }
 
 export function openThread(threadRoot: EventID) {

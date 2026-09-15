@@ -329,10 +329,49 @@
     margin-block: 0.25em;
   }
 
-  .message-body img[data-mx-emoticon] {
+  /* Inline images in formatted bodies. gomuks replaces their size attributes with classes; html.ts
+     restores the sender's size as an inline style, which wins over these defaults. */
+  .message-body img {
     display: inline;
-    height: 1.5em;
-    vertical-align: middle;
+    vertical-align: bottom;
+  }
+
+  .message-body img[data-mx-emoticon],
+  .message-body img.hicli-custom-emoji {
+    height: 2rem;
+    width: auto;
+    max-width: 5rem;
+    object-fit: contain;
+  }
+
+  .message-body img.hicli-sizeless-inline-img {
+    height: 1.5rem;
+    width: auto;
+    max-width: 5rem;
+  }
+
+  .message-body img.hicli-sized-inline-img,
+  .message-body img[data-mx-sized] {
+    max-width: min(100%, var(--max-image-width, 420px));
+    height: auto;
+    object-fit: contain;
+  }
+
+  /* show_inline_images off: show the alt text link gomuks puts before each image instead. */
+  .chat-message[data-hide-inline-images] .message-body img.hicli-inline-img,
+  .chat-message[data-hide-inline-images] .message-body img[data-mx-emoticon] {
+    display: none;
+  }
+
+  .chat-message[data-hide-inline-images] .message-body a.hicli-inline-img-fallback {
+    display: inline !important;
+  }
+
+  /* code_block_line_wrap */
+  .chat-message[data-code-wrap] .message-body pre,
+  .chat-message[data-code-wrap] .message-body pre code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .message-body span[data-mx-spoiler] {

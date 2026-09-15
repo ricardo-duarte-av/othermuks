@@ -5,7 +5,8 @@ import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
-import { isMessageLike, isRenderable, type TimelineEvent } from '@/store/events'
+import { isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
+import { usePreference, useTimelineFilter } from '@/store/preferences'
 import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
 import { ENTER_ANIMATION_WINDOW, TimelineRow } from './TimelineRow'
@@ -25,7 +26,7 @@ interface Item {
   newDay: boolean
 }
 
-function useVisibleRowIDs(roomID: RoomID) {
+function useVisibleRowIDs(roomID: RoomID, filter: TimelineFilter) {
   return useChat(
     useShallow(s => {
       const room = s.rooms[roomID]
@@ -33,13 +34,13 @@ function useVisibleRowIDs(roomID: RoomID) {
       const rowids: EventRowID[] = []
       for (const tuple of room.timeline) {
         const evt = s.events[tuple.event_rowid]
-        if (evt && isRenderable(evt)) rowids.push(evt.rowid)
+        if (evt && isRenderable(evt, filter)) rowids.push(evt.rowid)
       }
       if (room.pending.length) {
         const seen = new Set(rowids)
         for (const rowid of room.pending) {
           const evt = s.events[rowid]
-          if (evt && isRenderable(evt) && !seen.has(rowid)) rowids.push(rowid)
+          if (evt && isRenderable(evt, filter) && !seen.has(rowid)) rowids.push(rowid)
         }
       }
       return rowids
@@ -78,10 +79,10 @@ function useArrivals(items: Item[]): Map<EventRowID, number> {
  * A receipt on a hidden event (reaction, edit, redaction…) shows on the nearest visible row before it.
  * Rows whose readers didn't change keep the same array, so only affected rows re-render.
  */
-function useReceiptLayout(roomID: RoomID): Map<EventRowID, UserID[]> {
+function useReceiptLayout(roomID: RoomID, filter: TimelineFilter, enabled: boolean): Map<EventRowID, UserID[]> {
   const signature = useChat(s => {
     const room = s.rooms[roomID]
-    if (!room) return ''
+    if (!room || !enabled) return ''
     const receipts = Object.values(room.receipts)
     if (!receipts.length) return ''
     const own = selectOwnUserID(s)
@@ -90,7 +91,7 @@ function useReceiptLayout(roomID: RoomID): Map<EventRowID, UserID[]> {
     let lastVisible: EventRowID | undefined
     for (const tuple of room.timeline) {
       const evt = s.events[tuple.event_rowid]
-      if (evt && isRenderable(evt)) lastVisible = evt.rowid
+      if (evt && isRenderable(evt, filter)) lastVisible = evt.rowid
       if (lastVisible !== undefined) displayRow.set(tuple.event_rowid, lastVisible)
     }
 
@@ -133,8 +134,11 @@ function markLatestRead(roomID: RoomID) {
 }
 
 export function Timeline({ roomID }: { roomID: RoomID }) {
-  const rowids = useVisibleRowIDs(roomID)
-  const receiptLayout = useReceiptLayout(roomID)
+  const filter = useTimelineFilter(roomID)
+  const showReceipts = usePreference('display_read_receipts', roomID)
+  const showDates = usePreference('show_date_separators', roomID)
+  const rowids = useVisibleRowIDs(roomID, filter)
+  const receiptLayout = useReceiptLayout(roomID, filter, showReceipts)
   const timelineLength = useChat(s => s.rooms[roomID]?.timeline.length ?? 0)
   const hasMore = useChat(s => s.rooms[roomID]?.hasMore ?? false)
   const paginating = useChat(s => s.rooms[roomID]?.paginating ?? false)
@@ -146,18 +150,18 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     let prev: TimelineEvent | undefined
     return rowids.map(rowid => {
       const evt = events[rowid]
-      const newDay = !prev || !isSameDay(prev.timestamp, evt.timestamp)
+      const dayChange = !prev || !isSameDay(prev.timestamp, evt.timestamp)
       const compact =
         !!prev &&
-        !newDay &&
+        !dayChange &&
         isMessageLike(prev) &&
         isMessageLike(evt) &&
         prev.sender === evt.sender &&
         evt.timestamp - prev.timestamp < GROUP_WINDOW
       prev = evt
-      return { rowid, compact, newDay }
+      return { rowid, compact, newDay: dayChange && showDates }
     })
-  }, [rowids])
+  }, [rowids, showDates])
   const arrivals = useArrivals(items)
 
   const scrollRef = useRef<HTMLDivElement>(null)
