@@ -15,6 +15,7 @@ import { EmojiPopover } from '@/ui/emoji/EmojiPopover'
 import { withTone, type EmojiItem, type PickerSelection } from '@/ui/emoji/items'
 import { readSkinTone } from '@/ui/emoji/unicode'
 import { IconButton, Spinner } from '@/ui/primitives'
+import { ReplyPreview } from '@/ui/timeline/TimelineRow'
 import { mentionMarkdown, MentionSuggestions, useMemberSuggestions, type MemberSuggestion } from './MentionSuggestions'
 
 const TYPING_TIMEOUT = 10_000
@@ -311,12 +312,20 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
         />
       )}
       {context && (
-        <div className="composer-context flex items-center gap-2 rounded-t-xl border border-b-0 border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted">
-          {context.icon}
-          <span className="truncate">{context.label}</span>
-          <button type="button" aria-label="Cancel" onClick={cancelContext} className="ml-auto rounded p-0.5 hover:bg-hover hover:text-fg">
-            <X size={13} />
-          </button>
+        <div className="composer-context rounded-t-xl border border-b-0 border-border bg-surface-2/60 px-3 py-1.5">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            {context.icon}
+            <span className="truncate">{context.label}</span>
+            <button type="button" aria-label="Cancel" onClick={cancelContext} className="ml-auto rounded p-0.5 hover:bg-hover hover:text-fg">
+              <X size={13} />
+            </button>
+          </div>
+          {/* The whole message being replied to, as it will be quoted; long ones scroll. */}
+          {replyTo && !editing && (
+            <div className="composer-reply-quote -mb-0.5 max-h-36 overflow-y-auto overscroll-contain">
+              <ReplyPreview roomID={roomID} eventID={replyTo.event_id} />
+            </div>
+          )}
         </div>
       )}
       <div
