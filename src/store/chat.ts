@@ -94,6 +94,9 @@ export const useChat = create<ChatState>()(() => ({
 const get = useChat.getState
 const set = useChat.setState
 
+/** Called after each sync has been applied to the store (open widgets forward new events from here). */
+export const syncListeners = new Set<(data: SyncCompleteData) => void>()
+
 export const selectOwnUserID = (s: ChatState): UserID | undefined =>
   s.clientState?.is_logged_in ? s.clientState.user_id : undefined
 
@@ -308,6 +311,7 @@ function applySync(data: SyncCompleteData) {
     topLevelSpaces: sameIDs(topLevelSpaces, s.topLevelSpaces) ? s.topLevelSpaces : topLevelSpaces,
     ...(orderDirty ? computeOrder(rooms, s) : {}),
   })
+  for (const listener of syncListeners) listener(data)
 
   if (data.rooms && Object.keys(data.rooms).length) {
     const roomCount = Object.keys(rooms).length

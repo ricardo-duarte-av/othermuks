@@ -37,7 +37,7 @@ const COLUMNS: Column[] = [
   { context: PreferenceContext.RoomDevice, label: 'Room · device', hint: 'Only this room, only in this browser', icons: [Hash, Monitor], room: true },
 ]
 
-const GROUPS: PreferenceGroup[] = ['Privacy', 'Timeline', 'Media', 'Composer', 'Code', 'Room list', 'Notifications']
+const GROUPS: PreferenceGroup[] = ['Privacy', 'Timeline', 'Media', 'Composer', 'Code', 'Room list', 'Widgets', 'Notifications']
 
 const PUSH_STATUS_TEXT: Record<WebPushStatus, string> = {
   unsupported: "This browser can't receive web push here: it needs HTTPS and service worker and push support.",
@@ -350,6 +350,9 @@ function PreferenceCell({ prefKey, pref, context, label, value, inherited, winni
     )
   } else if (typeof pref.defaultValue === 'number') {
     control = <NumberInput pref={pref} shown={shown as number} set={set} label={controlLabel} onCommit={n => void save(n)} disabled={busy} />
+  } else if (typeof pref.defaultValue === 'string') {
+    // An empty value clears the setting here, so the inherited value (or the default) applies.
+    control = <TextInput shown={shown as string} set={set} label={controlLabel} onCommit={text => void save(text || undefined)} disabled={busy} />
   }
 
   return (
@@ -373,6 +376,47 @@ function PreferenceCell({ prefKey, pref, context, label, value, inherited, winni
         )}
       </span>
     </div>
+  )
+}
+
+function TextInput({
+  shown,
+  set,
+  label,
+  onCommit,
+  disabled,
+}: {
+  shown: string
+  set: boolean
+  label: string
+  onCommit: (value: string) => void
+  disabled?: boolean
+}) {
+  const [draft, setDraft] = useState(shown)
+  useEffect(() => setDraft(shown), [shown])
+
+  const commit = () => {
+    const value = draft.trim()
+    if (value !== shown) onCommit(value)
+  }
+
+  return (
+    <input
+      type="text"
+      aria-label={label}
+      title={draft || undefined}
+      value={draft}
+      placeholder={set ? undefined : 'Default'}
+      disabled={disabled}
+      spellCheck={false}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => e.key === 'Enter' && commit()}
+      className={cn(
+        'h-7 w-full min-w-0 rounded-md border bg-bg px-1.5 text-xs outline-none placeholder:text-muted focus:border-accent',
+        set ? 'border-border text-fg' : 'border-dashed border-border text-muted',
+      )}
+    />
   )
 }
 

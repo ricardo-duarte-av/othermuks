@@ -20,7 +20,17 @@ const SIDEBAR_MAX_WIDTH = 520
 
 export const RIGHT_PANEL_DEFAULT_WIDTH = 360
 const RIGHT_PANEL_MIN_WIDTH = 280
-const RIGHT_PANEL_MAX_WIDTH = 720
+/** The right panel can grow until only this much of the room timeline is left. */
+export const MIN_TIMELINE_WIDTH = 360
+/** Widgets (calls especially) open at least this wide. */
+const WIDGET_PANEL_MIN_WIDTH = 560
+/** Space rail width estimate for clamping; CSS enforces the exact limit. */
+const RAIL_WIDTH_ESTIMATE = 72
+
+function rightPanelMaxWidth(sidebarWidth: number) {
+  if (typeof window === 'undefined') return 1600
+  return Math.max(RIGHT_PANEL_MIN_WIDTH, window.innerWidth - sidebarWidth - RAIL_WIDTH_ESTIMATE - MIN_TIMELINE_WIDTH)
+}
 
 export interface MessageDialog {
   type: 'source' | 'delete' | 'original' | 'edits' | 'reactions' | 'receipts'
@@ -60,6 +70,8 @@ interface UIState {
   dialog: MessageDialog | null
   /** Settings dialog, optionally showing the room scopes for a room. */
   settings: { roomID: RoomID | null } | null
+  /** Right panel widgets view: the room's widget list, or one widget (CALL_WIDGET_ID for Element Call). */
+  widgetView: { mode: 'list' } | { mode: 'widget'; widgetID: string } | null
   toast: { id: number; message: string } | null
 }
 
@@ -86,6 +98,7 @@ export const useUI = create<UIState>()(
       lightbox: null,
       dialog: null,
       settings: null,
+      widgetView: null,
       toast: null,
     }),
     {
@@ -110,11 +123,30 @@ export function openRoom(roomID: RoomID) {
     activeRoomID: roomID,
     threadRoot: null,
     profileUserID: null,
+    // Widgets belong to their room; a call that asked to stay on screen pops out instead.
+    widgetView: null,
     replyTo: null,
     editing: null,
     highlight: null,
     paletteOpen: false,
   })
+}
+
+export function openWidgetList() {
+  useUI.setState({ widgetView: { mode: 'list' }, threadRoot: null, profileUserID: null })
+}
+
+export function openWidget(widgetID: string) {
+  useUI.setState(s => ({
+    widgetView: { mode: 'widget', widgetID },
+    threadRoot: null,
+    profileUserID: null,
+    rightPanelWidth: Math.max(s.rightPanelWidth, Math.min(WIDGET_PANEL_MIN_WIDTH, rightPanelMaxWidth(s.sidebarWidth))),
+  }))
+}
+
+export function closeWidgets() {
+  useUI.setState({ widgetView: null })
 }
 
 export function openSettings(roomID: RoomID | null = null) {
@@ -157,7 +189,7 @@ export function setSidebarWidth(width: number) {
 }
 
 export function setRightPanelWidth(width: number) {
-  useUI.setState({ rightPanelWidth: clamp(width, RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH) })
+  useUI.setState(s => ({ rightPanelWidth: clamp(width, RIGHT_PANEL_MIN_WIDTH, rightPanelMaxWidth(s.sidebarWidth)) }))
 }
 
 export function setTheme(theme: ThemeID) {

@@ -560,6 +560,57 @@ export class GomuksClient {
     return this.exec<void>('register_push', params)
   }
 
+  // ---- Widget API support ----
+
+  sendEvent(room_id: RoomID, type: string, content: unknown, opts: { disable_encryption?: boolean; synchronous?: boolean } = {}) {
+    return this.exec<RawDBEvent>('send_event', { room_id, type, content, ...opts })
+  }
+
+  /** With delay_ms, schedules a delayed state event and returns its delay ID instead of an event ID. */
+  setState(room_id: RoomID, type: string, state_key: string, content: unknown, extra: { delay_ms?: number } = {}) {
+    return this.exec<string>('set_state', { room_id, type, state_key, content, ...extra })
+  }
+
+  sendStickyEvent(room_id: RoomID, type: string, content: unknown, sticky_duration_ms: number, delay_ms?: number) {
+    return this.exec<string>('send_sticky_event', { room_id, type, content, sticky_duration_ms, delay_ms })
+  }
+
+  updateDelayedEvent(delay_id: string, action: 'cancel' | 'restart' | 'send') {
+    return this.exec<void>('update_delayed_event', { delay_id, action })
+  }
+
+  sendToDevice(event_type: string, messages: Record<string, Record<string, object>>, encrypted: boolean) {
+    return this.exec<void>('send_to_device', { event_type, messages, encrypted })
+  }
+
+  requestOpenIDToken() {
+    return this.exec<{ access_token: string; token_type: string; matrix_server_name: string; expires_in: number } | null>(
+      'request_openid_token',
+      {},
+    )
+  }
+
+  getTurnServers() {
+    return this.exec<{ uris: string[]; username: string; password: string; ttl?: number }>('get_turn_servers', {})
+  }
+
+  getRTCTransports() {
+    return this.exec<unknown>('get_rtc_transports', {})
+  }
+
+  getMediaConfig() {
+    return this.exec<Record<string, unknown>>('get_media_config', {})
+  }
+
+  /** Whether gomuks includes to-device events in syncs (only needed while widgets are open). */
+  setListenToDevice(listen: boolean) {
+    return this.exec<boolean>('listen_to_device', listen)
+  }
+
+  getStickyEvents(room_id: RoomID) {
+    return this.exec<RawDBEvent[] | null>('get_sticky_events', { room_id })
+  }
+
   /** Individual state events, e.g. emoji packs from rooms whose state isn't loaded. */
   getSpecificRoomState(keys: { room_id: RoomID; type: string; state_key: string }[]) {
     return this.exec<RawDBEvent[] | null>('get_specific_room_state', { keys })

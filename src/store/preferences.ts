@@ -27,7 +27,7 @@ const deviceOnly: PreferenceContext[] = [PreferenceContext.Device]
 
 export type PreferenceValue = boolean | number | string
 
-export type PreferenceGroup = 'Privacy' | 'Notifications' | 'Timeline' | 'Media' | 'Composer' | 'Code' | 'Room list'
+export type PreferenceGroup = 'Privacy' | 'Notifications' | 'Timeline' | 'Media' | 'Composer' | 'Code' | 'Room list' | 'Widgets'
 
 export interface Preference<T extends PreferenceValue = PreferenceValue> {
   displayName: string
@@ -115,6 +115,15 @@ export const preferences = {
     'Whether custom emoji and sticker packs defined in the current room are offered in the picker, in addition to the packs you subscribed to.',
     true,
   ),
+
+  element_call_base_url: {
+    group: 'Widgets',
+    displayName: 'Element Call URL',
+    description:
+      'Base URL of your own Element Call deployment for calls, e.g. https://call.example.com. Leave empty to use the Element Call bundled with othermuks.',
+    allowedContexts: anyContext,
+    defaultValue: '',
+  } satisfies Preference<string>,
 
   code_block_line_wrap: bool('Code', 'Code block line wrap', 'Whether to wrap long lines in code blocks instead of scrolling horizontally.', false),
   code_block_theme: {

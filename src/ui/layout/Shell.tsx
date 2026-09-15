@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useChat } from '@/store/chat'
 import { getRoomSort } from '@/store/preferences'
 import { roomIDsInRows, spaceListRows } from '@/store/spaces'
-import { openRoom, useUI } from '@/store/ui'
+import { MIN_TIMELINE_WIDTH, openRoom, useUI } from '@/store/ui'
 import { AppearanceDialog } from '@/ui/AppearanceDialog'
 import { Lightbox } from '@/ui/Lightbox'
 import { CommandPalette } from '@/ui/palette/CommandPalette'
@@ -13,6 +13,7 @@ import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
 import { RightPanel, type RightPanelKind } from '@/ui/room/RightPanel'
 import { RoomView } from '@/ui/room/RoomView'
 import { SettingsDialog } from '@/ui/settings/SettingsDialog'
+import { PermissionDialog } from '@/ui/widget/PermissionDialog'
 import { Sidebar } from '@/ui/sidebar/Sidebar'
 import { SpaceRail } from '@/ui/sidebar/SpaceRail'
 
@@ -47,12 +48,18 @@ function useGlobalShortcuts() {
       } else if (mod && e.key === '.') {
         e.preventDefault()
         // Shows room details (replacing a thread or profile on top), or hides them.
-        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID
-        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null })
-      } else if (e.key === 'Escape' && !isEditable(e.target) && (ui.profileUserID || ui.threadRoot || ui.drawerOpen)) {
-        // Close the top-most right panel view, revealing what's underneath.
+        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID && !ui.widgetView
+        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null })
+      } else if (
+        e.key === 'Escape' &&
+        !isEditable(e.target) &&
+        (ui.profileUserID || ui.threadRoot || ui.widgetView?.mode === 'list' || (!ui.widgetView && ui.drawerOpen))
+      ) {
+        // Close the top-most right panel view, revealing what's underneath. An open widget (a call)
+        // isn't closed by Esc, which is too easy to hit by accident.
         if (ui.profileUserID) useUI.setState({ profileUserID: null })
         else if (ui.threadRoot) useUI.setState({ threadRoot: null })
+        else if (ui.widgetView) useUI.setState({ widgetView: null })
         else useUI.setState({ drawerOpen: false })
       } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault()
@@ -112,20 +119,33 @@ export function Shell() {
   useGlobalShortcuts()
   const activeRoomID = useUI(s => s.activeRoomID)
   const drawerOpen = useUI(s => s.drawerOpen)
+  const widgetView = useUI(s => s.widgetView)
   const threadRoot = useUI(s => s.threadRoot)
   const profileUserID = useUI(s => s.profileUserID)
   const rightPanelWidth = useUI(s => s.rightPanelWidth)
   const hasRoom = useChat(s => !!activeRoomID && !!s.rooms[activeRoomID])
 
   let panel: RightPanelKind | null = null
-  if (hasRoom) panel = profileUserID ? 'user' : threadRoot ? 'thread' : drawerOpen ? 'details' : null
+  if (hasRoom) {
+    panel = profileUserID
+      ? 'user'
+      : threadRoot
+        ? 'thread'
+        : widgetView
+          ? widgetView.mode === 'list'
+            ? 'widgets'
+            : 'widget'
+          : drawerOpen
+            ? 'details'
+            : null
+  }
 
   return (
     <div className="app-shell flex h-full">
       <SpaceRail />
       <Sidebar />
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
-        <main className="flex min-w-0 flex-1 flex-col bg-[var(--timeline-bg)]" style={{ marginRight: panel ? rightPanelWidth : 0 }}>
+        <main className="flex min-w-0 flex-1 flex-col bg-[var(--timeline-bg)]" style={{ marginRight: panel ? `min(${rightPanelWidth}px, calc(100% - ${MIN_TIMELINE_WIDTH}px))` : 0 }}>
           <ConnectionBanner />
           {hasRoom ? <RoomView key={activeRoomID} roomID={activeRoomID!} /> : <EmptyState />}
         </main>
@@ -137,6 +157,7 @@ export function Shell() {
       <MessageDialogs />
       <AppearanceDialog />
       <SettingsDialog />
+      <PermissionDialog />
       <Lightbox />
       <Toaster />
     </div>

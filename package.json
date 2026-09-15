@@ -11,6 +11,7 @@
     "serve": "vite build && concurrently -k -n build,preview \"vite build --watch\" \"vite preview\""
   },
   "dependencies": {
+    "@element-hq/element-call-embedded": "^0.26.0",
     "@radix-ui/react-avatar": "^1.2.6",
     "@radix-ui/react-context-menu": "^2.3.7",
     "@radix-ui/react-dialog": "^1.1.23",
@@ -25,6 +26,7 @@
     "dompurify": "^3.4.15",
     "emojibase-data": "^17.0.0",
     "lucide-react": "^1.46.0",
+    "matrix-widget-api": "^1.19.0",
     "motion": "^13.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

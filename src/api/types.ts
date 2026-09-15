@@ -86,6 +86,8 @@ export interface RawDBEvent {
   unread_type: number
   decrypted?: Record<string, unknown>
   decrypted_type?: EventType
+  /** MSC4354 sticky events. */
+  sticky_duration_ms?: number
 }
 
 export interface EncryptedFile {
@@ -198,6 +200,15 @@ export interface SyncCompleteData {
   clear_state?: boolean
   catchup?: boolean
   server_timestamp?: number
+  /** Only sent while listen_to_device is on (open widgets need them). */
+  to_device?: SyncToDevice[] | null
+}
+
+export interface SyncToDevice {
+  sender: UserID
+  type: EventType
+  content: Record<string, unknown>
+  encrypted: boolean
 }
 
 export interface VerificationState {

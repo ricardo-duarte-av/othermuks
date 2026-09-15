@@ -26,6 +26,8 @@ export function ResizeHandle({ edge, getWidth, onResize, defaultWidth, label }: 
     handle.setPointerCapture(e.pointerId)
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
+    // Lets widget iframes ignore the pointer while dragging over them (see widgets.css).
+    document.body.setAttribute('data-resizing', '')
 
     const onMove = (ev: globalThis.PointerEvent) => onResize(startWidth + (ev.clientX - startX) * direction)
     const onEnd = () => {
@@ -34,6 +36,7 @@ export function ResizeHandle({ edge, getWidth, onResize, defaultWidth, label }: 
       handle.removeEventListener('pointercancel', onEnd)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      document.body.removeAttribute('data-resizing')
     }
     handle.addEventListener('pointermove', onMove)
     handle.addEventListener('pointerup', onEnd)

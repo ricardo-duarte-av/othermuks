@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite'
 
@@ -25,6 +26,58 @@ function emojibaseData(): Plugin {
       for (const file of EMOJIBASE_FILES) {
         this.emitFile({ type: 'asset', fileName: `emojibase/en/${file}`, source: read(file) })
       }
+    },
+  }
+}
+
+const elementCallDir = fileURLToPath(new URL('./node_modules/@element-hq/element-call-embedded/dist/', import.meta.url))
+
+/** Bundled Element Call is heavy and never needs these at runtime (same exclusions as gomuks). */
+const skipElementCallFile = (name: string) =>
+  name.endsWith('.map') || name.endsWith('.woff') || name.endsWith('.mp3') || /^matrix[_-]sdk[_-]crypto/.test(name)
+
+const ELEMENT_CALL_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.wasm': 'application/wasm',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.tflite': 'application/octet-stream',
+}
+
+/** Serves the embedded Element Call under ./element-call-embedded/ in dev and copies it into the build. */
+function elementCall(): Plugin {
+  return {
+    name: 'othermuks-element-call',
+    configureServer(server) {
+      server.middlewares.use('/element-call-embedded', (req, res, next) => {
+        const relative = decodeURIComponent((req.url ?? '/').split('?')[0]).replace(/^\/+/, '') || 'index.html'
+        const file = path.join(elementCallDir, relative)
+        if (!file.startsWith(elementCallDir)) return next()
+        try {
+          if (!statSync(file).isFile()) return next()
+        } catch {
+          return next()
+        }
+        res.setHeader('Content-Type', ELEMENT_CALL_TYPES[path.extname(file)] ?? 'application/octet-stream')
+        res.end(readFileSync(file))
+      })
+    },
+    writeBundle(options) {
+      const outDir = options.dir ?? 'dist'
+      const copy = (from: string, to: string) => {
+        mkdirSync(to, { recursive: true })
+        for (const name of readdirSync(from)) {
+          if (skipElementCallFile(name)) continue
+          const source = path.join(from, name)
+          if (statSync(source).isDirectory()) copy(source, path.join(to, name))
+          else copyFileSync(source, path.join(to, name))
+        }
+      }
+      copy(elementCallDir, path.join(outDir, 'element-call-embedded'))
     },
   }
 }
@@ -66,7 +119,7 @@ export default defineConfig(({ mode }) => {
   return {
     // Relative asset paths, so the build also works from a sub-path such as GitHub Pages (user.github.io/repo/).
     base: './',
-    plugins: [react(), tailwindcss(), emojibaseData()],
+    plugins: [react(), tailwindcss(), emojibaseData(), elementCall()],
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },

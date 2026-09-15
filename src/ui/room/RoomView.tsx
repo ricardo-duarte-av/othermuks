@@ -1,4 +1,4 @@
-import { Lock, PanelRight, Search, Settings2, Upload } from 'lucide-react'
+import { LayoutGrid, Lock, PanelRight, Search, Settings2, Upload, Video } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -8,7 +8,8 @@ import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
-import { openSettings, useUI } from '@/store/ui'
+import { closeWidgets, openSettings, openWidget, openWidgetList, useUI } from '@/store/ui'
+import { activeCallMembers, CALL_ROOM_TYPE, CALL_WIDGET_ID } from '@/store/widgets'
 import { Avatar, IconButton } from '@/ui/primitives'
 import { ContextTimeline } from '@/ui/timeline/ContextTimeline'
 import { Timeline } from '@/ui/timeline/Timeline'
@@ -16,7 +17,10 @@ import { Composer } from './Composer'
 
 function RoomHeader({ roomID }: { roomID: RoomID }) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
-  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID)
+  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID && !s.widgetView)
+  const widgetsVisible = useUI(s => !!s.widgetView && !s.threadRoot && !s.profileUserID)
+  const callVisible = useUI(s => s.widgetView?.mode === 'widget' && s.widgetView.widgetID === CALL_WIDGET_ID && !s.threadRoot && !s.profileUserID)
+  const inCall = useChat(s => activeCallMembers(s, roomID))
   if (!meta) return null
   return (
     <header className="room-header flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
@@ -31,6 +35,22 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
       <IconButton label="Search" shortcut="Ctrl K" onClick={() => useUI.setState({ paletteOpen: true })}>
         <Search size={17} />
       </IconButton>
+      <IconButton
+        label={inCall > 0 ? `Join the call (${inCall} in call)` : 'Start a call'}
+        data-active={callVisible || undefined}
+        onClick={() => (callVisible ? closeWidgets() : openWidget(CALL_WIDGET_ID))}
+        className="relative"
+      >
+        <Video size={17} />
+        {inCall > 0 && <span aria-hidden className="absolute right-1 top-1 size-2 rounded-full bg-success ring-2 ring-[var(--timeline-bg)]" />}
+      </IconButton>
+      <IconButton
+        label="Widgets"
+        data-active={widgetsVisible || undefined}
+        onClick={() => (widgetsVisible ? closeWidgets() : openWidgetList())}
+      >
+        <LayoutGrid size={17} />
+      </IconButton>
       <IconButton label="Room settings" onClick={() => openSettings(roomID)}>
         <Settings2 size={17} />
       </IconButton>
@@ -38,11 +58,33 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
         label="Room details"
         shortcut="Ctrl ."
         data-active={detailsVisible || undefined}
-        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null })}
+        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null })}
       >
         <PanelRight size={17} />
       </IconButton>
     </header>
+  )
+}
+
+/** Dedicated call rooms (MSC3417) are for calling: offer to join right away. */
+function CallRoomBanner({ roomID }: { roomID: RoomID }) {
+  const isCallRoom = useChat(s => s.rooms[roomID]?.meta.creation_content?.type === CALL_ROOM_TYPE)
+  const inCall = useChat(s => activeCallMembers(s, roomID))
+  if (!isCallRoom) return null
+  return (
+    <div className="call-room-banner flex shrink-0 items-center gap-3 border-b border-border bg-surface px-4 py-2 text-sm">
+      <Video size={16} className="shrink-0 text-accent" />
+      <span className="min-w-0 flex-1 truncate text-muted">
+        This is a call room{inCall > 0 ? ` · ${inCall} ${inCall === 1 ? 'person' : 'people'} in the call` : ''}
+      </span>
+      <button
+        type="button"
+        onClick={() => openWidget(CALL_WIDGET_ID)}
+        className="shrink-0 rounded-lg bg-accent px-3 py-1 text-xs font-medium text-accent-fg transition hover:brightness-110"
+      >
+        {inCall > 0 ? 'Join call' : 'Start call'}
+      </button>
+    </div>
   )
 }
 
@@ -157,6 +199,7 @@ export function RoomView({ roomID }: { roomID: RoomID }) {
       }}
     >
       <RoomHeader roomID={roomID} />
+      <CallRoomBanner roomID={roomID} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <Timeline roomID={roomID} />
         <AnimatePresence>{showContext && <ContextTimeline key="event-context" roomID={roomID} />}</AnimatePresence>
