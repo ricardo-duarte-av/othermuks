@@ -15,6 +15,7 @@ import { markOnce } from '@/lib/perf'
 import { handleRPCEvent, useChat } from './chat'
 import { loadSubscribedPacks } from './emoji'
 import { getPreference, useLocalPrefs } from './preferences'
+import { wireWebPush } from './webpush'
 import { applyTheme, codeblockStyleFor, setCodeblockCSS, useUI } from './ui'
 
 type Phase = 'checking' | 'backend' | 'login' | 'ready' | 'error'
@@ -134,6 +135,7 @@ function wireClient() {
     logEvent(received, performance.now() - started)
   })
   client.connection.on(connection => useChat.setState({ connection }))
+  wireWebPush()
   client.unauthorized.on(() => {
     client.stop()
     if (client.backend.mode === 'remote') forgetPassword()

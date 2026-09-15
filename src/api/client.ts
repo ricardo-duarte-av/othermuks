@@ -394,6 +394,14 @@ export class GomuksClient {
     return this.exec<RawDBEvent>('send_event', { room_id, type: 'm.reaction', content })
   }
 
+  /**
+   * Stores a push registration in gomuks under a stable per-browser device ID. Web push passes the
+   * browser's PushSubscription as data; type "null" stops pushes to that device.
+   */
+  registerPush(params: { type: 'web' | 'null'; device_id: string; data: unknown; expiration?: number }) {
+    return this.exec<void>('register_push', params)
+  }
+
   /** Individual state events, e.g. emoji packs from rooms whose state isn't loaded. */
   getSpecificRoomState(keys: { room_id: RoomID; type: string; state_key: string }[]) {
     return this.exec<RawDBEvent[] | null>('get_specific_room_state', { keys })

@@ -23,10 +23,11 @@ export type PreferenceContext = (typeof PreferenceContext)[keyof typeof Preferen
 /** Resolution order, most specific first (same as gomuks). */
 const anyContext: PreferenceContext[] = [PreferenceContext.RoomDevice, PreferenceContext.RoomAccount, PreferenceContext.Device, PreferenceContext.Account]
 const anyGlobalContext: PreferenceContext[] = [PreferenceContext.Device, PreferenceContext.Account]
+const deviceOnly: PreferenceContext[] = [PreferenceContext.Device]
 
 export type PreferenceValue = boolean | number | string
 
-export type PreferenceGroup = 'Privacy' | 'Timeline' | 'Media' | 'Composer' | 'Code' | 'Room list'
+export type PreferenceGroup = 'Privacy' | 'Notifications' | 'Timeline' | 'Media' | 'Composer' | 'Code' | 'Room list'
 
 export interface Preference<T extends PreferenceValue = PreferenceValue> {
   displayName: string
@@ -69,6 +70,14 @@ export const preferences = {
     true,
   ),
   send_typing_notifications: bool('Privacy', 'Send typing notifications', 'Should typing notifications be sent to other users?', true),
+
+  web_push: bool(
+    'Notifications',
+    'Push notifications',
+    'Get notified by gomuks through web push, even when othermuks is closed. Each browser registers separately, so this can only be set per device.',
+    false,
+    deviceOnly,
+  ),
 
   display_read_receipts: bool('Timeline', 'Display read receipts', 'Should read receipts be rendered in the timeline?', true),
   show_hidden_events: bool('Timeline', 'Show hidden events', 'Whether hidden events (e.g. member events that change nothing) should be visible in the room timeline.', true),

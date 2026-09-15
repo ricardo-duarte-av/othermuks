@@ -18,6 +18,7 @@ import {
   type PreferenceValue,
 } from '@/store/preferences'
 import { closeSettings, showToast, useUI } from '@/store/ui'
+import { pushDeviceID, useWebPush, type WebPushStatus } from '@/store/webpush'
 import { Spinner } from '@/ui/primitives'
 
 interface Column {
@@ -36,7 +37,44 @@ const COLUMNS: Column[] = [
   { context: PreferenceContext.RoomDevice, label: 'Room · device', hint: 'Only this room, only in this browser', icons: [Hash, Monitor], room: true },
 ]
 
-const GROUPS: PreferenceGroup[] = ['Privacy', 'Timeline', 'Media', 'Composer', 'Code', 'Room list']
+const GROUPS: PreferenceGroup[] = ['Privacy', 'Notifications', 'Timeline', 'Media', 'Composer', 'Code', 'Room list']
+
+const PUSH_STATUS_TEXT: Record<WebPushStatus, string> = {
+  unsupported: "This browser can't receive web push here: it needs HTTPS and service worker and push support.",
+  off: 'Not registered for push in this browser.',
+  working: 'Updating the push registration…',
+  on: 'This browser is registered with gomuks for push notifications.',
+  blocked: 'Notifications are blocked for this site.',
+  error: 'Push registration failed.',
+}
+
+function WebPushStatusRow({ columns }: { columns: number }) {
+  const { status, detail } = useWebPush()
+  return (
+    <div role="row" className="contents">
+      <div
+        role="cell"
+        className="flex items-center gap-2 border-b border-border/60 py-2 text-xs text-muted"
+        style={{ gridColumn: `1 / span ${columns + 1}` }}
+        title={`Push device ID for this browser: ${pushDeviceID()}`}
+        data-status={status}
+      >
+        {status === 'working' ? (
+          <Spinner size={12} />
+        ) : (
+          <span
+            aria-hidden
+            className={cn(
+              'size-2 shrink-0 rounded-full',
+              status === 'on' ? 'bg-success' : status === 'blocked' || status === 'error' ? 'bg-danger' : 'bg-border',
+            )}
+          />
+        )}
+        <span className={cn((status === 'blocked' || status === 'error') && 'text-danger')}>{detail ?? PUSH_STATUS_TEXT[status]}</span>
+      </div>
+    </div>
+  )
+}
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -175,6 +213,7 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
                 {rows.map(([key, pref]) => (
                   <PreferenceRow key={key} prefKey={key} pref={pref} columns={columns} values={values} roomID={roomID} />
                 ))}
+                {group === 'Notifications' && <WebPushStatusRow columns={columns.length} />}
               </Fragment>
             )
           })}
