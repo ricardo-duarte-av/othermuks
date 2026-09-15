@@ -125,7 +125,7 @@ function StateRow({ roomID, evt, readers }: { roomID: RoomID; evt: TimelineEvent
       <time title={formatFull(evt.timestamp)} className="invisible shrink-0 tabular-nums group-hover:visible">
         {formatTime(evt.timestamp)}
       </time>
-      {readers && readers.length > 0 && <ReadReceipts roomID={roomID} readers={readers} />}
+      {readers && readers.length > 0 && <ReadReceipts roomID={roomID} rowid={evt.rowid} readers={readers} />}
     </div>
   )
 }
@@ -214,7 +214,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
       {/* Receipts sit in the row itself, at the bottom right, so they don't add a line of their own. */}
       {readers && readers.length > 0 && (
         <div className="receipts-slot flex shrink-0 self-end pb-0.5">
-          <ReadReceipts roomID={roomID} readers={readers} />
+          <ReadReceipts roomID={roomID} rowid={evt.rowid} readers={readers} />
         </div>
       )}
       {!isPendingEvent(evt) && <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} />}
@@ -828,7 +828,10 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
       role="toolbar"
       aria-label="Message actions"
       className={cn(
-        'message-actions absolute -top-4 right-4 z-10 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-md',
+        // Sits above the row, overlapping its top edge by a few pixels: it doesn't cover the row's content
+        // (e.g. read receipts on one-line messages), and moving the mouse straight up enters the toolbar
+        // without crossing the message above, which would take over the hover.
+        'message-actions absolute bottom-[calc(100%-6px)] right-4 z-10 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-md',
         pickerOpen || menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex',
       )}
     >

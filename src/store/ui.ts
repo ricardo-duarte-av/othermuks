@@ -23,12 +23,14 @@ const RIGHT_PANEL_MIN_WIDTH = 280
 const RIGHT_PANEL_MAX_WIDTH = 720
 
 export interface MessageDialog {
-  type: 'source' | 'delete' | 'original' | 'edits' | 'reactions'
+  type: 'source' | 'delete' | 'original' | 'edits' | 'reactions' | 'receipts'
   rowid: EventRowID
+  /** Receipts dialog: whose receipts are shown on the row. */
+  userIDs?: UserID[]
 }
 
-export function openMessageDialog(type: MessageDialog['type'], rowid: EventRowID) {
-  useUI.setState({ dialog: { type, rowid } })
+export function openMessageDialog(type: MessageDialog['type'], rowid: EventRowID, extra: Pick<MessageDialog, 'userIDs'> = {}) {
+  useUI.setState({ dialog: { type, rowid, ...extra } })
 }
 
 interface UIState {

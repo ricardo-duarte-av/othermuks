@@ -1,11 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Copy, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
+import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { client } from '@/api/client'
 import type { LocalContent, MessageEventContent, RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
-import { formatFull } from '@/lib/format'
+import { formatDay, formatFull, formatTime, isSameDay } from '@/lib/format'
 import { useChat } from '@/store/chat'
 import { displayNameOf, normalizeEvent, originalEvent, type TimelineEvent } from '@/store/events'
 import { useMember } from '@/store/hooks'
@@ -22,6 +23,7 @@ const DIALOG_WIDTH: Record<MessageDialog['type'], string> = {
   original: 'w-[min(640px,calc(100vw-32px))]',
   edits: 'w-[min(640px,calc(100vw-32px))]',
   reactions: 'w-[min(460px,calc(100vw-32px))]',
+  receipts: 'w-[min(460px,calc(100vw-32px))]',
   delete: 'w-[min(480px,calc(100vw-32px))]',
 }
 
@@ -46,6 +48,7 @@ export function MessageDialogs() {
           {dialog?.type === 'original' && evt && <OriginalView evt={evt} />}
           {dialog?.type === 'edits' && evt && <EditHistoryView evt={evt} />}
           {dialog?.type === 'reactions' && evt && <ReactionsView evt={evt} />}
+          {dialog?.type === 'receipts' && evt && <ReceiptsView evt={evt} userIDs={dialog.userIDs ?? []} />}
           {dialog?.type === 'delete' && evt && <DeleteConfirm evt={evt} />}
         </Dialog.Content>
       </Dialog.Portal>
@@ -315,7 +318,16 @@ function EditHistoryView({ evt }: { evt: TimelineEvent }) {
   )
 }
 
-function ReactorRow({ roomID, userID, emoji, timestamp }: { roomID: RoomID; userID: UserID; emoji?: string; timestamp: number }) {
+interface UserRowProps {
+  roomID: RoomID
+  userID: UserID
+  emoji?: string
+  timestamp: number
+  /** Shown at the right of the row, e.g. when the user read the message. */
+  trailing?: ReactNode
+}
+
+function ReactorRow({ roomID, userID, emoji, timestamp, trailing }: UserRowProps) {
   const member = useMember(roomID, userID)
   const name = displayNameOf(userID, member)
   return (
@@ -335,8 +347,48 @@ function ReactorRow({ roomID, userID, emoji, timestamp }: { roomID: RoomID; user
           <span className="block truncate text-xs text-muted">{userID}</span>
         </span>
         {emoji && <span className="shrink-0 text-lg">{emoji}</span>}
+        {trailing}
       </button>
     </li>
+  )
+}
+
+/** Time of day for today, otherwise the day as well. */
+function readTime(ts: number) {
+  return isSameDay(ts, Date.now()) ? formatTime(ts) : `${formatDay(ts)}, ${formatTime(ts)}`
+}
+
+/** Who has read up to this message (their receipt is on it, or on a hidden event right after it), newest first. */
+function ReceiptsView({ evt, userIDs }: { evt: TimelineEvent; userIDs: UserID[] }) {
+  // Timestamps come live from the store, so a receipt that moves on while the dialog is open updates.
+  const timestamps = useChat(useShallow(s => userIDs.map(userID => s.rooms[evt.room_id]?.receipts[userID]?.timestamp ?? 0)))
+  const rows = userIDs.map((userID, i) => ({ userID, timestamp: timestamps[i] })).sort((a, b) => b.timestamp - a.timestamp)
+
+  return (
+    <>
+      <DialogHeader title={`Read by ${userIDs.length} ${userIDs.length === 1 ? 'person' : 'people'}`} />
+      <div className="min-h-0 overflow-auto p-2">
+        {rows.length === 0 && <p className="p-4 text-center text-sm text-muted">Nobody has read this yet.</p>}
+        <ul>
+          {rows.map(row => (
+            <ReactorRow
+              key={row.userID}
+              roomID={evt.room_id}
+              userID={row.userID}
+              timestamp={row.timestamp}
+              trailing={
+                row.timestamp > 0 && (
+                  <span className="shrink-0 text-right text-xs tabular-nums text-muted">
+                    <span className="block text-[10px] uppercase tracking-wide">Read</span>
+                    {readTime(row.timestamp)}
+                  </span>
+                )
+              }
+            />
+          ))}
+        </ul>
+      </div>
+    </>
   )
 }
 

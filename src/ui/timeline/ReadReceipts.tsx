@@ -1,11 +1,12 @@
 import { motion } from 'motion/react'
 import { memo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { RoomID, UserID } from '@/api/types'
+import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { formatNames } from '@/lib/format'
 import { useChat } from '@/store/chat'
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
+import { openMessageDialog } from '@/store/ui'
 import { Avatar } from '@/ui/primitives'
 
 const MAX_AVATARS = 5
@@ -16,26 +17,41 @@ const ReceiptAvatar = memo(function ReceiptAvatar({ roomID, userID }: { roomID: 
   return <Avatar mxc={member?.avatar_url} id={userID} name={displayNameOf(userID, member)} size={RECEIPT_AVATAR_SIZE} />
 })
 
+interface ReadReceiptsProps {
+  roomID: RoomID
+  /** The row the receipts are shown on. */
+  rowid: EventRowID
+  readers: UserID[]
+}
+
 /**
  * Avatars of people whose read receipt is on this message. Each avatar has a per-user layoutId, so
  * when someone's receipt moves to a newer message their avatar animates over instead of jumping.
+ * Clicking opens the list of readers with their read times.
  */
-export const ReadReceipts = memo(function ReadReceipts({ roomID, readers }: { roomID: RoomID; readers: UserID[] }) {
+export const ReadReceipts = memo(function ReadReceipts({ roomID, rowid, readers }: ReadReceiptsProps) {
   const names = useChat(
     useShallow(s => {
       const room = s.rooms[roomID]
       return readers.map(userID => {
-        const rowid = room?.state['m.room.member']?.[userID]
-        return displayNameOf(userID, rowid === undefined ? undefined : (s.events[rowid]?.content as { displayname?: unknown }))
+        const memberRowID = room?.state['m.room.member']?.[userID]
+        return displayNameOf(userID, memberRowID === undefined ? undefined : (s.events[memberRowID]?.content as { displayname?: unknown }))
       })
     }),
   )
   // Most recent readers are last; show those.
   const shown = readers.slice(-MAX_AVATARS)
   const hidden = readers.length - shown.length
+  const label = `Read by ${formatNames(names)}`
 
   return (
-    <div className="read-receipts flex shrink-0 items-center justify-end gap-1"title={`Read by ${formatNames(names)}`} aria-label={`Read by ${formatNames(names)}`}>
+    <button
+      type="button"
+      onClick={() => openMessageDialog('receipts', rowid, { userIDs: readers })}
+      title={`${label}. Click to see when.`}
+      aria-label={`${label}. Show read times`}
+      className="read-receipts -mx-1 flex shrink-0 cursor-pointer items-center justify-end gap-1 rounded-full px-1 py-0.5 outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent"
+    >
       {hidden > 0 && <span className="text-[10px] tabular-nums text-muted">+{hidden}</span>}
       <span className="flex -space-x-1">
         {shown.map(userID => (
@@ -51,6 +67,6 @@ export const ReadReceipts = memo(function ReadReceipts({ roomID, readers }: { ro
           </motion.span>
         ))}
       </span>
-    </div>
+    </button>
   )
 })
