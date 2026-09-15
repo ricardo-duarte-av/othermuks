@@ -7,7 +7,7 @@ import { client } from '@/api/client'
 import type { LocalContent, MessageEventContent, RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatDay, formatFull, formatTime, isSameDay } from '@/lib/format'
-import { useChat } from '@/store/chat'
+import { selectOwnUserID, useChat } from '@/store/chat'
 import { displayNameOf, normalizeEvent, originalEvent, type TimelineEvent } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { loadReactionDetails, reactionSignature, useReactionDetails } from '@/store/reactions'
@@ -448,6 +448,9 @@ function ReactionsView({ evt }: { evt: TimelineEvent }) {
 function DeleteConfirm({ evt }: { evt: TimelineEvent }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const ownUserID = useChat(selectOwnUserID)
+  const sender = useMember(evt.room_id, evt.sender)
+  const othersMessage = evt.sender !== ownUserID
 
   async function confirm() {
     setBusy(true)
@@ -462,8 +465,14 @@ function DeleteConfirm({ evt }: { evt: TimelineEvent }) {
 
   return (
     <div className="flex flex-col gap-4 p-5">
-      <Dialog.Title className="text-base font-semibold">Delete message?</Dialog.Title>
-      <p className="text-sm text-muted">This removes the message for everyone in the room. It can't be undone.</p>
+      <Dialog.Title className="text-base font-semibold">
+        {othersMessage ? `Delete ${displayNameOf(evt.sender, sender)}'s message?` : 'Delete message?'}
+      </Dialog.Title>
+      <p className="text-sm text-muted">
+        {othersMessage
+          ? "You're removing another person's message as a moderator. It's removed for everyone in the room and can't be undone."
+          : "This removes the message for everyone in the room. It can't be undone."}
+      </p>
       <input
         value={reason}
         onChange={e => setReason(e.target.value)}

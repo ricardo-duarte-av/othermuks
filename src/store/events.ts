@@ -76,7 +76,11 @@ const STATE_TYPES = new Set([
   'm.room.encryption',
   'm.room.create',
   'm.room.tombstone',
+  'm.room.pinned_events',
 ])
+
+const eventIDList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [])
+const messageCount = (count: number) => (count === 1 ? 'a message' : `${count} messages`)
 
 export function isMessageLike(evt: TimelineEvent): boolean {
   return evt.type === 'm.room.message' || evt.type === 'm.sticker' || evt.type === 'm.room.encrypted'
@@ -179,6 +183,16 @@ export function describeStateEvent(evt: TimelineEvent, senderName: string, targe
       return `${senderName} created the room`
     case 'm.room.tombstone':
       return `${senderName} upgraded this room`
+    case 'm.room.pinned_events': {
+      const now = eventIDList(content.pinned)
+      const before = eventIDList(evt.unsigned.prev_content?.pinned)
+      const added = now.filter(id => !before.includes(id)).length
+      const removed = before.filter(id => !now.includes(id)).length
+      if (added && removed) return `${senderName} pinned ${messageCount(added)} and unpinned ${messageCount(removed)}`
+      if (added) return `${senderName} pinned ${messageCount(added)}`
+      if (removed) return `${senderName} unpinned ${messageCount(removed)}`
+      return `${senderName} changed the pinned messages`
+    }
   }
   return `${senderName} sent ${evt.type}`
 }

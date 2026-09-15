@@ -48,18 +48,19 @@ function useGlobalShortcuts() {
       } else if (mod && e.key === '.') {
         e.preventDefault()
         // Shows room details (replacing a thread or profile on top), or hides them.
-        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID && !ui.widgetView
-        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null })
+        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID && !ui.widgetView && !ui.pinsOpen
+        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, pinsOpen: false })
       } else if (
         e.key === 'Escape' &&
         !isEditable(e.target) &&
-        (ui.profileUserID || ui.threadRoot || ui.widgetView?.mode === 'list' || (!ui.widgetView && ui.drawerOpen))
+        (ui.profileUserID || ui.threadRoot || ui.widgetView?.mode === 'list' || (!ui.widgetView && (ui.pinsOpen || ui.drawerOpen)))
       ) {
         // Close the top-most right panel view, revealing what's underneath. An open widget (a call)
         // isn't closed by Esc, which is too easy to hit by accident.
         if (ui.profileUserID) useUI.setState({ profileUserID: null })
         else if (ui.threadRoot) useUI.setState({ threadRoot: null })
         else if (ui.widgetView) useUI.setState({ widgetView: null })
+        else if (ui.pinsOpen) useUI.setState({ pinsOpen: false })
         else useUI.setState({ drawerOpen: false })
       } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault()
@@ -120,6 +121,7 @@ export function Shell() {
   const activeRoomID = useUI(s => s.activeRoomID)
   const drawerOpen = useUI(s => s.drawerOpen)
   const widgetView = useUI(s => s.widgetView)
+  const pinsOpen = useUI(s => s.pinsOpen)
   const threadRoot = useUI(s => s.threadRoot)
   const profileUserID = useUI(s => s.profileUserID)
   const rightPanelWidth = useUI(s => s.rightPanelWidth)
@@ -135,9 +137,11 @@ export function Shell() {
           ? widgetView.mode === 'list'
             ? 'widgets'
             : 'widget'
-          : drawerOpen
-            ? 'details'
-            : null
+          : pinsOpen
+            ? 'pins'
+            : drawerOpen
+              ? 'details'
+              : null
   }
 
   return (

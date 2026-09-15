@@ -8,6 +8,18 @@ const PRE_V12_ROOM_VERSIONS = new Set<string | undefined>([undefined, '', '1', '
 export interface PowerLevelsContent {
   users?: Record<UserID, number>
   users_default?: number
+  events?: Record<string, number>
+  events_default?: number
+  state_default?: number
+  redact?: number
+}
+
+/** Level needed to send an event type: its `events` entry, else state_default / events_default (like gomuks). */
+export function eventPowerLevel(powerLevels: PowerLevelsContent | undefined, eventType: string, state = false): number {
+  const specific = powerLevels?.events?.[eventType]
+  if (typeof specific === 'number') return specific
+  const fallback = state ? powerLevels?.state_default : powerLevels?.events_default
+  return typeof fallback === 'number' ? fallback : state ? 50 : 0
 }
 
 export function userPowerLevel(

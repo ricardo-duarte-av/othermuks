@@ -109,16 +109,21 @@ export function spaceListRows(src: SpaceSource, spaceID: string, sort: RoomSortO
     rows = order.filter(roomID => src.rooms[roomID]?.meta.dm_user_id).map(roomRow)
   } else {
     const direct = new Set<RoomID>()
-    const subspaces: RoomID[] = []
+    // A Set: a sub-space listed twice would otherwise get two sections with the same header key.
+    const subspaces = new Set<RoomID>()
     for (const edge of src.spaceEdges[spaceID] ?? []) {
-      if (isSpace(src, edge.child_id)) subspaces.push(edge.child_id)
+      if (isSpace(src, edge.child_id)) subspaces.add(edge.child_id)
       else direct.add(edge.child_id)
     }
     rows = order.filter(roomID => direct.has(roomID)).map(roomRow)
+    // Row keys must be unique: a room in several sub-spaces is shown once, under the first. Duplicate keys
+    // make React and the virtualizer reuse one row element for two positions, drawing rooms over each other.
+    const listed = new Set(direct)
     for (const subspaceID of subspaces) {
       const nested = new Set<RoomID>()
       collectRooms(src, subspaceID, nested, new Set([spaceID]))
-      const sectionRooms = order.filter(roomID => nested.has(roomID) && !direct.has(roomID))
+      const sectionRooms = order.filter(roomID => nested.has(roomID) && !listed.has(roomID))
+      for (const roomID of sectionRooms) listed.add(roomID)
       if (sectionRooms.length) rows.push(`h:${subspaceID}`, ...sectionRooms.map(roomRow))
     }
   }

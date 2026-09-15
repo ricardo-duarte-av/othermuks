@@ -72,6 +72,8 @@ interface UIState {
   settings: { roomID: RoomID | null } | null
   /** Right panel widgets view: the room's widget list, or one widget (CALL_WIDGET_ID for Element Call). */
   widgetView: { mode: 'list' } | { mode: 'widget'; widgetID: string } | null
+  /** Right panel pinned messages view (sits above room details, below widgets). */
+  pinsOpen: boolean
   toast: { id: number; message: string } | null
 }
 
@@ -99,6 +101,7 @@ export const useUI = create<UIState>()(
       dialog: null,
       settings: null,
       widgetView: null,
+      pinsOpen: false,
       toast: null,
     }),
     {
@@ -132,13 +135,22 @@ export function openRoom(roomID: RoomID) {
   })
 }
 
+export function openPins() {
+  useUI.setState({ pinsOpen: true, widgetView: null, threadRoot: null, profileUserID: null })
+}
+
+export function closePins() {
+  useUI.setState({ pinsOpen: false })
+}
+
 export function openWidgetList() {
-  useUI.setState({ widgetView: { mode: 'list' }, threadRoot: null, profileUserID: null })
+  useUI.setState({ widgetView: { mode: 'list' }, pinsOpen: false, threadRoot: null, profileUserID: null })
 }
 
 export function openWidget(widgetID: string) {
   useUI.setState(s => ({
     widgetView: { mode: 'widget', widgetID },
+    pinsOpen: false,
     threadRoot: null,
     profileUserID: null,
     rightPanelWidth: Math.max(s.rightPanelWidth, Math.min(WIDGET_PANEL_MIN_WIDTH, rightPanelMaxWidth(s.sidebarWidth))),

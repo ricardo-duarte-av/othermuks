@@ -13,6 +13,8 @@ import {
   LockKeyhole,
   MessagesSquare,
   Pencil,
+  Pin,
+  PinOff,
   Reply,
   SmilePlus,
   Sticker,
@@ -43,6 +45,8 @@ import {
 } from '@/store/events'
 import { customEmojiShortcode } from '@/store/emoji'
 import { useMember } from '@/store/hooks'
+import { useCanRedact } from '@/store/permissions'
+import { setPinned, useCanPin, useIsPinned } from '@/store/pins'
 import { usePreference } from '@/store/preferences'
 import type { PickerSelection } from '@/ui/emoji/items'
 import { jumpToEvent, openMatrixTarget } from '@/store/navigation'
@@ -149,6 +153,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
   const inlineImages = usePreference('show_inline_images', roomID)
   const maxImageWidth = usePreference('max_image_width', roomID)
   const smallReplies = usePreference('small_replies', roomID)
+  const pinned = useIsPinned(roomID, evt.event_id)
   const member = useMember(roomID, evt.sender)
   const lastEdit = useChat(s => (evt.last_edit_rowid ? s.events[evt.last_edit_rowid] : undefined))
   const highlighted = useUI(s => s.highlight?.rowid === evt.rowid)
@@ -198,6 +203,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
             <time title={formatFull(evt.timestamp)} className="shrink-0 text-[11px] tabular-nums text-muted">
               {formatTime(evt.timestamp)}
             </time>
+            {pinned && <Pin size={11} className="pinned-marker shrink-0 self-center text-accent" aria-label="Pinned" />}
           </div>
         )}
         {replyTo && <ReplyPreview roomID={roomID} eventID={replyTo} small={smallReplies} />}
@@ -896,6 +902,16 @@ interface MessageActionsProps {
 function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActionsProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const allowedToPin = useCanPin(roomID)
+  // Own messages, or anyone's for moderators, as the room's power levels allow.
+  const canRedact = useCanRedact(roomID, evt.sender)
+  const pinned = useIsPinned(roomID, evt.event_id)
+  const togglePin = () => {
+    setPinned(roomID, evt.event_id, !pinned).then(
+      () => showToast(pinned ? 'Message unpinned' : 'Message pinned'),
+      err => showToast(`Couldn't ${pinned ? 'unpin' : 'pin'} the message: ${errorText(err)}`),
+    )
+  }
   const redacted = !!evt.redacted_by
   const msgtype = evt.content.msgtype as string | undefined
   const editable = own && !redacted && evt.type === 'm.room.message' && EDITABLE_MSGTYPES.has(msgtype ?? '')
@@ -962,6 +978,12 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
             <MenuItem icon={<Link2 size={15} />} onSelect={() => void copyToClipboard(`https://matrix.to/#/${roomID}/${evt.event_id}`, 'Link copied')}>
               Share link
             </MenuItem>
+            {/* Only offered when the room's power levels allow it; a deleted message can still be unpinned. */}
+            {allowedToPin && (pinned || !redacted) && (
+              <MenuItem icon={pinned ? <PinOff size={15} /> : <Pin size={15} />} onSelect={togglePin}>
+                {pinned ? 'Unpin message' : 'Pin message'}
+              </MenuItem>
+            )}
             {!redacted && typeof evt.content.body === 'string' && (
               <MenuItem icon={<Copy size={15} />} onSelect={copyText}>
                 Copy text
@@ -985,7 +1007,7 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
             <MenuItem icon={<Code size={15} />} onSelect={() => openDialog('source')}>
               View source
             </MenuItem>
-            {own && !redacted && (
+            {canRedact && !redacted && (
               <>
                 <DropdownMenu.Separator className="my-1 h-px bg-border" />
                 <MenuItem icon={<Trash2 size={15} />} onSelect={() => openDialog('delete')} danger>

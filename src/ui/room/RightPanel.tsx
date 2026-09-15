@@ -3,11 +3,12 @@ import type { RoomID } from '@/api/types'
 import { MIN_TIMELINE_WIDTH, RIGHT_PANEL_DEFAULT_WIDTH, setRightPanelWidth, useUI } from '@/store/ui'
 import { ResizeHandle } from '@/ui/ResizeHandle'
 import { WidgetListPanel, WidgetPanel } from '@/ui/widget/WidgetPanels'
+import { PinnedPanel } from './PinnedPanel'
 import { RoomDetails } from './RoomDrawer'
 import { ThreadView } from './ThreadPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 
-export type RightPanelKind = 'details' | 'thread' | 'user' | 'widgets' | 'widget'
+export type RightPanelKind = 'details' | 'thread' | 'user' | 'widgets' | 'widget' | 'pins'
 
 /** The resizable right sidebar. Switching between its views swaps content without re-animating the panel. */
 export function RightPanel({ roomID, kind }: { roomID: RoomID; kind: RightPanelKind }) {
@@ -37,6 +38,7 @@ export function RightPanel({ roomID, kind }: { roomID: RoomID; kind: RightPanelK
       {kind === 'details' && <RoomDetails roomID={roomID} />}
       {kind === 'thread' && threadRoot && <ThreadView key={threadRoot} roomID={roomID} rootID={threadRoot} />}
       {kind === 'user' && profileUserID && <UserProfilePanel key={profileUserID} roomID={roomID} userID={profileUserID} />}
+      {kind === 'pins' && <PinnedPanel roomID={roomID} />}
       {kind === 'widgets' && <WidgetListPanel roomID={roomID} />}
       {kind === 'widget' && widgetView?.mode === 'widget' && <WidgetPanel roomID={roomID} widgetID={widgetView.widgetID} />}
     </motion.aside>

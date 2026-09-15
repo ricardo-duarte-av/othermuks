@@ -151,8 +151,29 @@ function startSession() {
   refreshCodeblockStyle()
 }
 
+const APP_NAME = 'othermuks'
+
+/** The tab shows which backend this tab uses: the remote host, or this site when gomuks serves it. */
+function updateTitle() {
+  const { phase, backendURL } = useSession.getState()
+  let host: string | null = null
+  if (backendURL) {
+    try {
+      host = new URL(backendURL).host
+    } catch {
+      host = backendURL
+    }
+  } else if (client.backend.mode === 'same-origin' && (phase === 'ready' || phase === 'login')) {
+    host = location.host
+  }
+  const title = host ?? APP_NAME
+  if (document.title !== title) document.title = title
+}
+
 export async function bootstrap() {
   markOnce('app started')
+  updateTitle()
+  useSession.subscribe(updateTitle)
   applyTheme(useUI.getState().theme)
   useUI.subscribe((state, prev) => {
     if (state.theme === prev.theme) return

@@ -15,11 +15,14 @@ import { EmojiPopover } from '@/ui/emoji/EmojiPopover'
 import { withTone, type EmojiItem, type PickerSelection } from '@/ui/emoji/items'
 import { readSkinTone } from '@/ui/emoji/unicode'
 import { IconButton, Spinner } from '@/ui/primitives'
+import { mentionMarkdown, MentionSuggestions, useMemberSuggestions, type MemberSuggestion } from './MentionSuggestions'
 
 const TYPING_TIMEOUT = 10_000
 const TYPING_RESEND = 4_000
 /** `:name` right before the caret, at the start or after whitespace or "(". */
 const SUGGEST_PATTERN = /(?:^|[\s(])(:[a-zA-Z0-9_+-]{2,})$/
+/** `@query` right before the caret (a bare "@" lists members too); not inside words like e-mail addresses. */
+const MENTION_PATTERN = /(?:^|[\s(])(@[^\s@()[\]]{0,48})$/
 const drafts = new Map<string, string>()
 
 interface ComposerProps {
@@ -49,15 +52,17 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const [uploading, setUploading] = useState(0)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [stickersOpen, setStickersOpen] = useState(false)
-  const [suggest, setSuggest] = useState<{ start: number; end: number; query: string } | null>(null)
+  const [suggest, setSuggest] = useState<{ kind: 'emoji' | 'mention'; start: number; end: number; query: string } | null>(null)
   const [suggestIndex, setSuggestIndex] = useState(0)
   const dismissedAt = useRef(-1)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const typingSentAt = useRef(0)
 
-  const suggestions = useEmojiSuggestions(suggest?.query ?? null, roomID)
-  const suggesting = !!suggest && suggestions.length > 0
+  const suggestions = useEmojiSuggestions(suggest?.kind === 'emoji' ? suggest.query : null, roomID)
+  const memberSuggestions = useMemberSuggestions(suggest?.kind === 'mention' ? suggest.query : null, roomID)
+  const suggestionCount = suggest?.kind === 'mention' ? memberSuggestions.length : suggestions.length
+  const suggesting = !!suggest && suggestionCount > 0
 
   useEffect(() => {
     drafts.set(draftKey, text)
@@ -65,7 +70,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
 
   useEffect(() => {
     setSuggestIndex(0)
-  }, [suggest?.query])
+  }, [suggest?.query, suggest?.kind])
 
   // Load the message source into the input when editing starts.
   useEffect(() => {
@@ -166,7 +171,9 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   }
 
   function updateSuggest(value: string, caret: number | null) {
-    const match = caret === null ? null : SUGGEST_PATTERN.exec(value.slice(0, caret))
+    const before = caret === null ? '' : value.slice(0, caret)
+    const mention = caret === null ? null : MENTION_PATTERN.exec(before)
+    const match = mention ?? (caret === null ? null : SUGGEST_PATTERN.exec(before))
     if (!match || caret === null) {
       dismissedAt.current = -1
       setSuggest(null)
@@ -177,8 +184,22 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
       setSuggest(null)
       return
     }
+    const kind = mention ? 'mention' : 'emoji'
     const query = match[1].slice(1)
-    setSuggest(prev => (prev && prev.start === start && prev.end === caret ? prev : { start, end: caret, query }))
+    setSuggest(prev => (prev && prev.kind === kind && prev.start === start && prev.end === caret ? prev : { kind, start, end: caret, query }))
+  }
+
+  function pickMention(member: MemberSuggestion) {
+    if (!suggest) return
+    replaceRange(suggest.start, suggest.end, `${mentionMarkdown(member.name, member.userID)} `)
+    setSuggest(null)
+  }
+
+  function pickActiveSuggestion() {
+    if (!suggest) return
+    const index = Math.min(suggestIndex, suggestionCount - 1)
+    if (suggest.kind === 'mention') pickMention(memberSuggestions[index])
+    else pickSuggestion(suggestions[index])
   }
 
   function pickSuggestion(item: EmojiItem) {
@@ -218,7 +239,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (suggesting && suggest) {
-      const count = suggestions.length
+      const count = suggestionCount
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         setSuggestIndex(i => (i + (e.key === 'ArrowDown' ? 1 : -1) + count) % count)
@@ -226,7 +247,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
       }
       if ((e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) || e.key === 'Tab') {
         e.preventDefault()
-        pickSuggestion(suggestions[Math.min(suggestIndex, count - 1)])
+        pickActiveSuggestion()
         return
       }
       if (e.key === 'Escape') {
@@ -273,12 +294,20 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
 
   return (
     <div className="composer-wrap relative shrink-0 px-4 pb-4">
-      {suggesting && (
+      {suggesting && suggest?.kind === 'emoji' && (
         <EmojiSuggestions
           items={suggestions}
           active={Math.min(suggestIndex, suggestions.length - 1)}
           onHover={setSuggestIndex}
           onPick={pickSuggestion}
+        />
+      )}
+      {suggesting && suggest?.kind === 'mention' && (
+        <MentionSuggestions
+          items={memberSuggestions}
+          active={Math.min(suggestIndex, memberSuggestions.length - 1)}
+          onHover={setSuggestIndex}
+          onPick={pickMention}
         />
       )}
       {context && (

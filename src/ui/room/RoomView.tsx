@@ -1,4 +1,4 @@
-import { LayoutGrid, Lock, PanelRight, Search, Settings2, Upload, Video } from 'lucide-react'
+import { LayoutGrid, Lock, PanelRight, Pin, Search, Settings2, Upload, Video } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -8,7 +8,8 @@ import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
-import { closeWidgets, openSettings, openWidget, openWidgetList, useUI } from '@/store/ui'
+import { usePinnedEvents } from '@/store/pins'
+import { closePins, closeWidgets, openPins, openSettings, openWidget, openWidgetList, useUI } from '@/store/ui'
 import { activeCallMembers, CALL_ROOM_TYPE, CALL_WIDGET_ID } from '@/store/widgets'
 import { Avatar, IconButton } from '@/ui/primitives'
 import { ContextTimeline } from '@/ui/timeline/ContextTimeline'
@@ -17,7 +18,7 @@ import { Composer } from './Composer'
 
 function RoomHeader({ roomID }: { roomID: RoomID }) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
-  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID && !s.widgetView)
+  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID && !s.widgetView && !s.pinsOpen)
   const widgetsVisible = useUI(s => !!s.widgetView && !s.threadRoot && !s.profileUserID)
   const callVisible = useUI(s => s.widgetView?.mode === 'widget' && s.widgetView.widgetID === CALL_WIDGET_ID && !s.threadRoot && !s.profileUserID)
   const inCall = useChat(s => activeCallMembers(s, roomID))
@@ -35,6 +36,7 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
       <IconButton label="Search" shortcut="Ctrl K" onClick={() => useUI.setState({ paletteOpen: true })}>
         <Search size={17} />
       </IconButton>
+      <PinsButton roomID={roomID} />
       <IconButton
         label={inCall > 0 ? `Join the call (${inCall} in call)` : 'Start a call'}
         data-active={callVisible || undefined}
@@ -58,11 +60,31 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
         label="Room details"
         shortcut="Ctrl ."
         data-active={detailsVisible || undefined}
-        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null })}
+        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, pinsOpen: false })}
       >
         <PanelRight size={17} />
       </IconButton>
     </header>
+  )
+}
+
+function PinsButton({ roomID }: { roomID: RoomID }) {
+  const count = usePinnedEvents(roomID).length
+  const visible = useUI(s => s.pinsOpen && !s.threadRoot && !s.profileUserID && !s.widgetView)
+  return (
+    <IconButton
+      label={count ? `Pinned messages (${count})` : 'Pinned messages'}
+      data-active={visible || undefined}
+      onClick={() => (visible ? closePins() : openPins())}
+      className="relative"
+    >
+      <Pin size={17} />
+      {count > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-fg tabular-nums">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </IconButton>
   )
 }
 
