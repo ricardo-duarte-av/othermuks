@@ -78,9 +78,11 @@ interface RowProps {
 export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot, readers, arrivedAt }: RowProps) {
   const evt = useChat(s => s.events[rowid])
   const ownUserID = useChat(selectOwnUserID)
+  // Decided once on mount: flipping it later (the window passing on a re-render) would drop the animation
+  // target mid-way and could leave the row stuck at its invisible starting state.
+  const [entering] = useState(() => arrivedAt !== undefined && Date.now() - arrivedAt < ENTER_ANIMATION_WINDOW)
   if (!evt) return null
   const own = evt.sender === ownUserID
-  const entering = arrivedAt !== undefined && Date.now() - arrivedAt < ENTER_ANIMATION_WINDOW
 
   return (
     <motion.div

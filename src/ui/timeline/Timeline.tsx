@@ -71,7 +71,8 @@ function useArrivals(items: Item[]): Map<EventRowID, number> {
     while (i >= 0 && !known.current.has(items[i].rowid)) fresh.push(items[i--].rowid)
     for (const item of items) known.current.add(item.rowid)
     // i < 0 means every row is unknown (e.g. the timeline was reset): don't animate a whole screen.
-    if (i >= 0) for (const rowid of fresh) if (!arrivals.current.has(rowid)) arrivals.current.set(rowid, now)
+    // In a background tab animation frames are paused and nobody sees the arrival, so don't animate those either.
+    if (i >= 0 && !document.hidden) for (const rowid of fresh) if (!arrivals.current.has(rowid)) arrivals.current.set(rowid, now)
     return new Map(arrivals.current)
   }, [items])
 }
