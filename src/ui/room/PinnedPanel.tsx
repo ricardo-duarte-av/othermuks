@@ -2,7 +2,7 @@ import { CornerDownRight, Pin, PinOff, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { EventID, RoomID } from '@/api/types'
 import { fetchEvent, useChat } from '@/store/chat'
-import { jumpToEvent } from '@/store/navigation'
+import { jumpToEvent, loadEventContext } from '@/store/navigation'
 import { setPinned, useCanPin, usePinnedEvents } from '@/store/pins'
 import { closePins, showToast } from '@/store/ui'
 import { IconButton, Spinner } from '@/ui/primitives'
@@ -101,7 +101,17 @@ function PinnedItem({ roomID, eventID, canPin }: { roomID: RoomID; eventID: Even
           </button>
         )}
       </div>
-      <div className="py-1.5">
+      <div
+        className={rowid !== undefined ? 'pinned-body cursor-pointer py-1.5' : 'py-1.5'}
+        title={rowid !== undefined ? 'Show in timeline' : undefined}
+        onClick={e => {
+          if (rowid === undefined) return
+          // Links, reactions, media and the message menu keep their own clicks; so does selecting text.
+          if ((e.target as Element).closest('a, button, input, textarea, video, audio, [role="button"], [role="menu"]')) return
+          if (window.getSelection()?.toString()) return
+          void loadEventContext(roomID, eventID, 'pin')
+        }}
+      >
         {rowid !== undefined ? (
           <TimelineRow roomID={roomID} rowid={rowid} compact={false} newDay={false} />
         ) : failed ? (

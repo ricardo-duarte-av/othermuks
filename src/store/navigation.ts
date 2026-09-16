@@ -31,6 +31,8 @@ function flashHighlight(rowid: EventRowID) {
 export interface EventContextView {
   roomID: RoomID
   eventID: EventID
+  /** What led here, for the view's header. */
+  reason: 'link' | 'pin'
   status: 'loading' | 'ready' | 'error'
   /** Chronological. */
   rowids: EventRowID[]
@@ -44,8 +46,8 @@ export function closeEventContext() {
   if (useEventContext.getState().view) useEventContext.setState({ view: null })
 }
 
-export async function loadEventContext(roomID: RoomID, eventID: EventID) {
-  useEventContext.setState({ view: { roomID, eventID, status: 'loading', rowids: [] } })
+export async function loadEventContext(roomID: RoomID, eventID: EventID, reason: EventContextView['reason'] = 'link') {
+  useEventContext.setState({ view: { roomID, eventID, reason, status: 'loading', rowids: [] } })
   const stillWanted = () => {
     const view = useEventContext.getState().view
     return view?.roomID === roomID && view.eventID === eventID
@@ -60,10 +62,10 @@ export async function loadEventContext(roomID: RoomID, eventID: EventID) {
       (a, b) => (s.events[a]?.timestamp ?? 0) - (s.events[b]?.timestamp ?? 0),
     )
     const targetRowID = s.eventIDs[eventID]
-    useEventContext.setState({ view: { roomID, eventID, status: 'ready', rowids, targetRowID } })
+    useEventContext.setState({ view: { roomID, eventID, reason, status: 'ready', rowids, targetRowID } })
     if (targetRowID !== undefined) flashHighlight(targetRowID)
   } catch (err) {
-    if (stillWanted()) useEventContext.setState({ view: { roomID, eventID, status: 'error', rowids: [], error: errorText(err) } })
+    if (stillWanted()) useEventContext.setState({ view: { roomID, eventID, reason, status: 'error', rowids: [], error: errorText(err) } })
   }
 }
 

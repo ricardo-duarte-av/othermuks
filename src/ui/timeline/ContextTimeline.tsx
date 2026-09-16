@@ -73,7 +73,9 @@ export function ContextTimeline({ roomID }: { roomID: RoomID }) {
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-4 py-2 text-sm">
         <History size={15} className="shrink-0 text-muted" />
-        <span className="min-w-0 truncate text-muted">Viewing older messages around a linked message</span>
+        <span className="min-w-0 truncate text-muted">
+          Viewing messages around a {view?.reason === 'pin' ? 'pinned' : 'linked'} message
+        </span>
         <button
           type="button"
           onClick={closeEventContext}
