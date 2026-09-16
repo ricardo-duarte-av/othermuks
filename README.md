@@ -33,5 +33,10 @@ services:
 `https://host/_gomuks`). The proxy disables response buffering and allows hour-long reads, which is what
 the event stream needs.
 
+The browser's own `Host` is forwarded to gomuks, because gomuks accepts a websocket upgrade only when
+the `Host` it sees matches the page's `Origin`. If your backend is a name-based vhost that routes by
+`Host`, set `GOMUKS_HOST_HEADER` to the backend's hostname — and then add the othermuks origin to
+`origin_patterns` in gomuks' `config.yaml`, or the websocket will be answered with 403.
+
 Put your own TLS terminator in front of it. If that is nginx too, it must not buffer `/_gomuks/sse`
 either (`proxy_buffering off`, or let gomuks' `X-Accel-Buffering: no` through).

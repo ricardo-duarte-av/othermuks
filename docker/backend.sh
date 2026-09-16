@@ -17,12 +17,31 @@ backend=${GOMUKS_BACKEND%/}
 backend=${backend%/_gomuks}
 backend=${backend%/}
 
-echo "othermuks: proxying /_gomuks/ to $backend/_gomuks/"
+# Hostname alone, for TLS SNI (ignored when the backend is plain http): no scheme, path, userinfo or port.
+backend_host=${backend#*://}
+backend_host=${backend_host%%/*}
+backend_host=${backend_host##*@}
+case $backend_host in
+    \[*\]*) backend_host=${backend_host%%\]*}\] ;;  # [::1]:29325 -> [::1]
+    *:*) backend_host=${backend_host%:*} ;;
+esac
+
+# gomuks accepts a websocket upgrade only when the Host it receives matches the browser's Origin
+# (coder/websocket authenticateOrigin), so the browser's own host is forwarded rather than nginx's
+# default of the backend's address. Override this when the backend is a name-based vhost that routes
+# by Host; gomuks' config then needs the othermuks origin in `origin_patterns` for websockets to work.
+host_header=${GOMUKS_HOST_HEADER:-\$host}
+
+echo "othermuks: proxying /_gomuks/ to $backend/_gomuks/ (Host: $host_header)"
 
 cat > "$conf" <<EOF
 location /_gomuks/ {
     proxy_pass $backend/_gomuks/;
     proxy_http_version 1.1;
+
+    proxy_set_header Host $host_header;
+    proxy_ssl_server_name on;
+    proxy_ssl_name $backend_host;
 
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection \$connection_upgrade;
