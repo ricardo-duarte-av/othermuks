@@ -2,7 +2,13 @@
 // HTTP spec: https://spec.mau.fi/gomuks/http.html  RPC spec: https://spec.mau.fi/gomuks/rpc.html
 import { formatMs, formatSize, log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
-import { basicAuthHeader, type BackendConfig } from './backend'
+import {
+  basicAuthHeader,
+  forgetWebsocketPreferred,
+  rememberWebsocketPreferred,
+  websocketPreferred,
+  type BackendConfig,
+} from './backend'
 import { setImageAuthToken, setMediaBackend } from './media'
 import { createSSEParser } from './sse'
 import type {
@@ -104,8 +110,13 @@ export class GomuksClient {
    * How events arrive. Always SSE, except on the same origin after SSE stalled (e.g. a firewall that
    * holds streaming responses back): then gomuks' websocket, for the rest of the session. A websocket
    * can't carry Basic auth and gomuks' cookie is SameSite=Lax, so remote backends stay on SSE.
+   *
+   * The choice is remembered per browser, so a network that stalls the stream costs the wait once
+   * rather than on every load. A websocket that then delivers nothing drops that memory again.
    */
   #transport: 'sse' | 'websocket' = 'sse'
+  /** Whether SSE already stalled this session, so the websocket is the only transport left to try. */
+  #sseStalled = false
 
   // Resume state: see "Session resumption" in the RPC spec.
   #runID?: string
@@ -121,7 +132,8 @@ export class GomuksClient {
   configure(backend: BackendConfig) {
     if (!this.#stopped) this.stop()
     this.#backend = backend
-    this.#transport = 'sse'
+    this.#transport = backend.mode === 'same-origin' && websocketPreferred() ? 'websocket' : 'sse'
+    this.#sseStalled = false
     this.#runID = undefined
     this.#listenerID = undefined
     this.#lastReceived = undefined
@@ -250,6 +262,7 @@ export class GomuksClient {
       log.warn(`event stream stalled: no data after ${STREAM_STALL_TIMEOUT / 1000}s, switching to the websocket`)
       source.close()
       this.#stream = null
+      this.#sseStalled = true
       this.#transport = 'websocket'
       if (!this.#stopped) this.#connect()
     }, STREAM_STALL_TIMEOUT)
@@ -306,7 +319,11 @@ export class GomuksClient {
     const stallTimer = setTimeout(() => {
       if (receiving) return
       log.warn(`websocket stalled: no data after ${STREAM_STALL_TIMEOUT / 1000}s`)
-      fail("No data from gomuks over the event stream or the websocket. This network seems to block both.")
+      fail(
+        this.#websocketFailed()
+          ? undefined
+          : 'No data from gomuks over the event stream or the websocket. This network seems to block both.',
+      )
     }, STREAM_STALL_TIMEOUT)
 
     const pingTimer = setInterval(() => {
@@ -325,6 +342,8 @@ export class GomuksClient {
       if (!receiving) {
         receiving = true
         clearTimeout(stallTimer)
+        // Data, not just an open socket, is what makes this worth skipping SSE for next time.
+        rememberWebsocketPreferred()
         this.#onOpen()
       }
       // One JSON command per line (gomuks may put several in one frame).
@@ -338,6 +357,9 @@ export class GomuksClient {
       if (closed) return
       log.warn(`websocket closed (${event.code}${event.reason ? `: ${event.reason}` : ''})`)
       cleanup()
+      // A handshake gomuks refuses (e.g. a reverse proxy that doesn't forward the browser's Host,
+      // which fails its Origin check) closes here without ever delivering an event.
+      if (!receiving) this.#websocketFailed()
       this.#onError()
     }
     return {
@@ -415,6 +437,18 @@ export class GomuksClient {
         controller.abort()
       },
     }
+  }
+
+  /**
+   * A websocket that delivered nothing is no fallback, so it stops being the remembered one. Returns
+   * whether there's still SSE to go back to: once it has stalled this session, both have failed.
+   */
+  #websocketFailed(): boolean {
+    forgetWebsocketPreferred()
+    if (this.#sseStalled) return false
+    log.warn('websocket delivered nothing, going back to the event stream')
+    this.#transport = 'sse'
+    return true
   }
 
   #onOpen = () => {

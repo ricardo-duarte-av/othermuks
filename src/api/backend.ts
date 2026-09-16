@@ -98,6 +98,27 @@ export function clearStoredBackend() {
   remove(() => sessionStorage, SESSION_PASSWORD_KEY)
 }
 
+// ---- transport ------------------------------------------------------------------------------
+
+const TRANSPORT_KEY = 'othermuks-transport'
+
+/**
+ * Whether the event stream has already proven unusable on this browser (a proxy or antivirus holding
+ * it back), so the next load goes straight to the websocket instead of waiting out the stall first.
+ * Only ever set for same-origin backends: a remote one can't authenticate a websocket.
+ */
+export function websocketPreferred(): boolean {
+  return readJSON<string>(() => localStorage, TRANSPORT_KEY) === 'websocket'
+}
+
+export function rememberWebsocketPreferred() {
+  if (!websocketPreferred()) writeJSON(() => localStorage, TRANSPORT_KEY, 'websocket')
+}
+
+export function forgetWebsocketPreferred() {
+  remove(() => localStorage, TRANSPORT_KEY)
+}
+
 /** Makes the next page load show the backend picker even if this site has its own gomuks. */
 export function requestBackendPicker() {
   writeJSON(() => sessionStorage, PICK_BACKEND_KEY, true)
