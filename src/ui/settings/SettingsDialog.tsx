@@ -160,9 +160,7 @@ export function SettingsDialog() {
 
 function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
   const activeRoomID = useUI(s => s.activeRoomID)
-  const roomChoice = initialRoomID ?? activeRoomID
-  const [roomID, setRoomID] = useState<RoomID | null>(initialRoomID)
-  const roomName = useChat(s => (roomChoice ? (s.rooms[roomChoice]?.meta.name ?? roomChoice) : undefined))
+  const roomID = initialRoomID ?? activeRoomID
   const [section, setSection] = useState<Section>('preferences')
   const ignoredCount = useIgnoredUsers().size
 
@@ -171,26 +169,15 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <Dialog.Title className="text-sm font-semibold">Settings</Dialog.Title>
         <div role="tablist" aria-label="Section" className="flex min-w-0 gap-1 rounded-lg bg-bg p-0.5">
-          <ScopeTab selected={section === 'preferences'} onClick={() => setSection('preferences')}>
+          <TabButton selected={section === 'preferences'} onClick={() => setSection('preferences')}>
             Preferences
-          </ScopeTab>
-          <ScopeTab selected={section === 'ignored'} onClick={() => setSection('ignored')}>
+          </TabButton>
+          <TabButton selected={section === 'ignored'} onClick={() => setSection('ignored')}>
             <UserX size={12} className="shrink-0" />
             Ignored
             {ignoredCount > 0 && <span className="rounded-full bg-surface-2 px-1.5 py-px text-[10px] tabular-nums">{ignoredCount}</span>}
-          </ScopeTab>
+          </TabButton>
         </div>
-        {section === 'preferences' && roomChoice && (
-          <div role="tablist" aria-label="Scope" className="flex min-w-0 gap-1 rounded-lg bg-bg p-0.5">
-            <ScopeTab selected={!roomID} onClick={() => setRoomID(null)}>
-              Global
-            </ScopeTab>
-            <ScopeTab selected={!!roomID} onClick={() => setRoomID(roomChoice)}>
-              <Hash size={12} className="shrink-0" />
-              <span className="max-w-48 truncate">{roomName}</span>
-            </ScopeTab>
-          </div>
-        )}
         <button
           type="button"
           onClick={() => {
@@ -222,7 +209,11 @@ function PreferencesSection({ roomID }: { roomID: RoomID | null }) {
   const local = useLocalPrefs()
   const chat = useChat.getState()
 
-  const columns = COLUMNS.filter(column => roomID || !column.room)
+  const roomName = useChat(s => (roomID ? (s.rooms[roomID]?.meta.name ?? roomID) : undefined))
+  // With no scope switch above the table, the room columns are where the room is named.
+  const columns = COLUMNS.filter(column => roomID || !column.room).map(column =>
+    column.room && roomName ? { ...column, hint: column.hint.replace('this room', roomName) } : column,
+  )
   const values = new Map(columns.map(column => [column.context, scopeValues(column.context, chat, local, roomID)]))
 
   const needle = query.trim().toLowerCase()
@@ -416,7 +407,7 @@ function IgnoredUserRow({ userID }: { userID: string }) {
   )
 }
 
-function ScopeTab({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: ReactNode }) {
+function TabButton({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
