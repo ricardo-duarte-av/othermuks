@@ -192,6 +192,8 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
    * bottom for good: it stayed parked in old history while new messages piled up below.
    */
   const programmatic = useRef<number | null>(null)
+  /** Last observed scroll position, to tell which way the view moved. */
+  const lastTop = useRef(0)
 
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -214,6 +216,11 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     }
     const wasAtBottom = atBottom.current
     const reachedBottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD
+    // Only moving up detaches the timeline. Rows are measured after they render, so the content can
+    // grow by thousands of pixels under a view that is already at the bottom; measured by distance
+    // alone that looks exactly like scrolling away, and the timeline would stop following the room.
+    const movedUp = el.scrollTop < lastTop.current - 1
+    lastTop.current = el.scrollTop
     if (jumping.current) {
       // Mid smooth-scroll from "Jump to latest": stay attached until the bottom is reached.
       if (reachedBottom) {
@@ -222,8 +229,8 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       }
       return
     }
-    atBottom.current = reachedBottom
-    setDetached(!reachedBottom)
+    atBottom.current = reachedBottom || (atBottom.current && !movedUp)
+    setDetached(!atBottom.current)
     const first = virtualizer.getVirtualItems().find(item => item.end > el.scrollTop)
     anchor.current = first ? { rowid: first.key as EventRowID, offset: first.start - el.scrollTop } : null
     if (el.scrollTop < LOAD_THRESHOLD) void loadOlder(roomID)
@@ -240,6 +247,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       el.scrollTop = el.scrollHeight
       // Read back: the browser clamps to the maximum, and that's the value the scroll event reports.
       programmatic.current = el.scrollTop
+      lastTop.current = el.scrollTop
     } else if (prevFirst !== undefined && prevFirst !== items[0].rowid && anchor.current) {
       const { rowid, offset } = anchor.current
       const index = items.findIndex(item => item.rowid === rowid)
@@ -247,6 +255,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       if (measurement) {
         el.scrollTop = measurement.start - offset
         programmatic.current = el.scrollTop
+        lastTop.current = el.scrollTop
       }
     }
   }, [items, totalSize, virtualizer])
