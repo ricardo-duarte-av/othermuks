@@ -189,8 +189,11 @@ export interface LightboxImage {
   placeholder?: string
   width?: number
   height?: number
-  /** Where it was opened from, so the viewer can zoom out of it: the box on screen and what filled it. */
-  from?: { rect: { top: number; left: number; width: number; height: number }; url?: string }
+  /**
+   * Where it was opened from, so the viewer can zoom in and back out of it: the box on screen, what
+   * filled it, and the element itself, which is re-measured on close in case the timeline has moved.
+   */
+  from?: { rect: { top: number; left: number; width: number; height: number }; url?: string; element?: HTMLElement }
 }
 
 export function openLightbox(url: string, name?: string, extra: Omit<LightboxImage, 'url' | 'name'> = {}) {

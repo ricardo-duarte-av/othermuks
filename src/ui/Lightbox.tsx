@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Download, ExternalLink, RotateCcw, RotateCw, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { cn } from '@/lib/cn'
 import { showToast, useUI, type LightboxImage } from '@/store/ui'
 import { Spinner } from './primitives'
@@ -54,37 +54,73 @@ function ToolbarButton({ label, onClick, children }: { label: string; onClick: (
   )
 }
 
-/** Full-screen image viewer. Open it with openLightbox(url, name, { placeholder, width, height }). */
+/** Full-screen image viewer. Open it with openLightbox(url, name, { placeholder, width, height, from }). */
 export function Lightbox() {
   const lightbox = useUI(s => s.lightbox)
+  // The viewer animates back into the thumbnail before it goes, so the chrome around it fades with it.
+  const [closing, setClosing] = useState(false)
+  const view = useRef<{ close: () => void } | null>(null)
+
+  useEffect(() => {
+    if (lightbox) setClosing(false)
+  }, [lightbox])
+
   return (
-    <Dialog.Root open={!!lightbox} onOpenChange={open => !open && useUI.setState({ lightbox: null })}>
+    <Dialog.Root
+      open={!!lightbox}
+      // Esc and outside clicks ask the view to close, so it can run the zoom out first.
+      onOpenChange={open => {
+        if (!open) view.current?.close()
+      }}
+    >
       <Dialog.Portal>
-        <Dialog.Overlay className="lightbox-overlay fixed inset-0 z-[60] animate-[lightbox-in_150ms_ease-out] bg-black/90" />
+        <Dialog.Overlay
+          className={cn(
+            'lightbox-overlay fixed inset-0 z-[60] animate-[lightbox-in_150ms_ease-out] bg-black/90 transition-opacity duration-300 ease-out',
+            closing && 'opacity-0',
+          )}
+        />
         <Dialog.Content
           aria-describedby={undefined}
           className="lightbox fixed inset-0 z-[61] flex animate-[lightbox-in_150ms_ease-out] flex-col outline-none"
         >
-          {lightbox && <LightboxView key={lightbox.url} {...lightbox} />}
+          {lightbox && <LightboxView key={lightbox.url} ref={view} onClosing={() => setClosing(true)} {...lightbox} />}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   )
 }
 
-/** Size of the placeholder so it matches where the loaded image will appear. */
-function placeholderSize(width: number | undefined, height: number | undefined, sideways: boolean) {
+/** Size of the image so the stand-in matches where the loaded image will appear. */
+function fittedSize(width: number | undefined, height: number | undefined, sideways: boolean) {
   if (!width || !height) return undefined
-  const maxWidth = (sideways ? window.innerHeight - VERTICAL_MARGIN : window.innerWidth - HORIZONTAL_MARGIN)
-  const maxHeight = (sideways ? window.innerWidth - HORIZONTAL_MARGIN : window.innerHeight - VERTICAL_MARGIN)
+  const maxWidth = sideways ? window.innerHeight - VERTICAL_MARGIN : window.innerWidth - HORIZONTAL_MARGIN
+  const maxHeight = sideways ? window.innerWidth - HORIZONTAL_MARGIN : window.innerHeight - VERTICAL_MARGIN
   const scale = Math.min(1, maxWidth / width, maxHeight / height)
   return { width: Math.round(width * scale), height: Math.round(height * scale) }
 }
 
-function LightboxView({ url, name, placeholder, width, height, from }: LightboxImage) {
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Transform that puts `box` exactly over `target`, for zooming between the thumbnail and the viewer. */
+function transformOnto(box: DOMRect, target: { top: number; left: number; width: number; height: number }) {
+  const scaleX = target.width / box.width
+  const scaleY = target.height / box.height
+  const dx = target.left + target.width / 2 - (box.left + box.width / 2)
+  const dy = target.top + target.height / 2 - (box.top + box.height / 2)
+  return `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`
+}
+
+const ZOOM_MS = 280
+
+interface LightboxViewProps extends LightboxImage {
+  ref: Ref<{ close: () => void }>
+  onClosing: () => void
+}
+
+function LightboxView({ url, name, placeholder, width, height, from, ref, onClosing }: LightboxViewProps) {
   const [rotation, setRotation] = useState(0)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
-  const close = () => useUI.setState({ lightbox: null })
   const rotate = (delta: number) => setRotation(r => r + delta)
   const quarter = ((rotation % 360) + 360) % 360
   const sideways = quarter === 90 || quarter === 270
@@ -92,8 +128,10 @@ function LightboxView({ url, name, placeholder, width, height, from }: LightboxI
   const preview = from?.url ?? placeholder
   // Kept mounted a moment past the load so it can fade under the original instead of blinking away.
   const [previewMounted, setPreviewMounted] = useState(true)
-  const previewBox = preview && previewMounted ? placeholderSize(width, height, sideways) : undefined
+  const box = fittedSize(width, height, sideways)
   const stageRef = useRef<HTMLDivElement>(null)
+  const closingRef = useRef(false)
+  const [closing, setClosing] = useState(false)
 
   useEffect(() => {
     if (status !== 'loaded') return
@@ -101,21 +139,50 @@ function LightboxView({ url, name, placeholder, width, height, from }: LightboxI
     return () => clearTimeout(timer)
   }, [status])
 
-  // Grow the stand-in out of the thumbnail that was clicked: measure where it lands, start it back at
-  // the thumbnail's box, then let the transition carry it in. Without a size to land in (an image whose
-  // dimensions the event didn't carry) there's nothing to animate between, so it just appears.
+  /**
+   * Where the thumbnail is now. It may have scrolled away or been replaced since the viewer opened,
+   * so the live element wins over the box remembered at open, and a thumbnail that has left the
+   * screen isn't worth flying back to.
+   */
+  const thumbnailRect = () => {
+    if (!from) return undefined
+    const live = from.element?.isConnected ? from.element.getBoundingClientRect() : undefined
+    const rect = live?.width ? live : from.rect
+    const offscreen = rect.top > window.innerHeight || rect.left > window.innerWidth || rect.top + rect.height < 0 || rect.left + rect.width < 0
+    return offscreen ? undefined : rect
+  }
+
+  const close = () => {
+    const stage = stageRef.current
+    const target = thumbnailRect()
+    if (closingRef.current) return
+    if (!stage || !target || !box || reducedMotion()) {
+      useUI.setState({ lightbox: null })
+      return
+    }
+    closingRef.current = true
+    setClosing(true)
+    onClosing()
+    // Shrink back into the thumbnail, then let the dialog go.
+    stage.style.transform = transformOnto(stage.getBoundingClientRect(), target)
+    stage.style.opacity = status === 'loaded' ? '1' : '0.6'
+    const closed = useUI.getState().lightbox
+    setTimeout(() => {
+      if (useUI.getState().lightbox === closed) useUI.setState({ lightbox: null })
+    }, ZOOM_MS)
+  }
+
+  useImperativeHandle(ref, () => ({ close }))
+
+  // Grow out of the thumbnail that was clicked: measure where the image lands, start the stage back at
+  // the thumbnail's box, then let the transition carry it in. An image whose event carried no
+  // dimensions has no box to land in, so it just appears.
   useLayoutEffect(() => {
     const stage = stageRef.current
-    if (!stage || !from || !previewBox) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const dest = stage.getBoundingClientRect()
-    if (!dest.width || !dest.height) return
-    const scaleX = from.rect.width / dest.width
-    const scaleY = from.rect.height / dest.height
-    const dx = from.rect.left + from.rect.width / 2 - (dest.left + dest.width / 2)
-    const dy = from.rect.top + from.rect.height / 2 - (dest.top + dest.height / 2)
+    const target = thumbnailRect()
+    if (!stage || !target || !box || reducedMotion()) return
     stage.style.transition = 'none'
-    stage.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`
+    stage.style.transform = transformOnto(stage.getBoundingClientRect(), target)
     const frame = requestAnimationFrame(() => {
       stage.style.transition = ''
       stage.style.transform = ''
@@ -133,9 +200,16 @@ function LightboxView({ url, name, placeholder, width, height, from }: LightboxI
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const rotated = { transform: `rotate(${rotation}deg)` }
+
   return (
     <>
-      <div className="flex shrink-0 items-center gap-2 px-4 py-3">
+      <div
+        className={cn(
+          'lightbox-chrome flex shrink-0 items-center gap-2 px-4 py-3 transition-opacity duration-200 ease-out',
+          closing && 'opacity-0',
+        )}
+      >
         <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-medium text-white/90">{name || 'Image'}</Dialog.Title>
         <ToolbarButton label="Rotate left (Shift+R)" onClick={() => rotate(-90)}>
           <RotateCcw size={18} />
@@ -159,43 +233,59 @@ function LightboxView({ url, name, placeholder, width, height, from }: LightboxI
           if (e.target === e.currentTarget) close()
         }}
       >
-        {previewBox && (
-          <div
-            ref={stageRef}
-            aria-hidden
-            className="lightbox-zoom pointer-events-none absolute inset-0 m-auto transition-transform duration-300 ease-out"
-            style={previewBox}
-          >
-            <img
-              src={preview}
-              alt=""
-              // Fades out once the original has drawn over it, rather than blinking away.
-              className="size-full object-contain transition-opacity duration-200 ease-out"
-              style={{ transform: `rotate(${rotation}deg)`, opacity: status === 'loaded' ? 0 : 1 }}
-            />
-          </div>
-        )}
-        {status === 'loading' && !previewBox && <Spinner size={28} className="absolute text-white/70" />}
         {status === 'error' ? (
           <p className="text-sm text-white/80">Couldn't load this image.</p>
-        ) : (
-          <img
-            src={url}
-            alt={name ?? ''}
-            draggable={false}
-            onLoad={() => setStatus('loaded')}
-            onError={() => setStatus('error')}
-            className={cn(
-              'relative select-none object-contain shadow-2xl transition-[transform,opacity] duration-300 ease-out',
-              status === 'loaded' ? 'opacity-100' : 'opacity-0',
+        ) : box ? (
+          // One box for both the stand-in and the original, so a single transform zooms either of them.
+          <div
+            ref={stageRef}
+            className="lightbox-stage absolute inset-0 m-auto transition-[transform,opacity] ease-out"
+            style={{ ...box, transitionDuration: `${ZOOM_MS}ms` }}
+          >
+            {preview && previewMounted && (
+              <img
+                src={preview}
+                alt=""
+                aria-hidden
+                className="absolute inset-0 size-full object-contain transition-[transform,opacity] duration-200 ease-out"
+                style={{ ...rotated, opacity: status === 'loaded' ? 0 : 1 }}
+              />
             )}
-            style={{
-              transform: `rotate(${rotation}deg)`,
-              // A sideways image swaps which viewport dimension limits it.
-              maxWidth: sideways ? `calc(100vh - ${VERTICAL_MARGIN}px)` : `calc(100vw - ${HORIZONTAL_MARGIN}px)`,
-              maxHeight: sideways ? `calc(100vw - ${HORIZONTAL_MARGIN}px)` : `calc(100vh - ${VERTICAL_MARGIN}px)`,
-            }}
-          />
+            <img
+              src={url}
+              alt={name ?? ''}
+              draggable={false}
+              onLoad={() => setStatus('loaded')}
+              onError={() => setStatus('error')}
+              className={cn(
+                'absolute inset-0 size-full select-none object-contain shadow-2xl transition-[transform,opacity] duration-200 ease-out',
+                status === 'loaded' ? 'opacity-100' : 'opacity-0',
+              )}
+              style={rotated}
+            />
+          </div>
+        ) : (
+          // No dimensions to lay out against: the original sizes itself once it arrives.
+          <>
+            {status === 'loading' && <Spinner size={28} className="absolute text-white/70" />}
+            <img
+              src={url}
+              alt={name ?? ''}
+              draggable={false}
+              onLoad={() => setStatus('loaded')}
+              onError={() => setStatus('error')}
+              className={cn(
+                'relative select-none object-contain shadow-2xl transition-[transform,opacity] duration-300 ease-out',
+                status === 'loaded' ? 'opacity-100' : 'opacity-0',
+              )}
+              style={{
+                ...rotated,
+                // A sideways image swaps which viewport dimension limits it.
+                maxWidth: sideways ? `calc(100vh - ${VERTICAL_MARGIN}px)` : `calc(100vw - ${HORIZONTAL_MARGIN}px)`,
+                maxHeight: sideways ? `calc(100vw - ${HORIZONTAL_MARGIN}px)` : `calc(100vh - ${VERTICAL_MARGIN}px)`,
+              }}
+            />
+          </>
         )}
       </div>
     </>
