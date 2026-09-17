@@ -232,7 +232,10 @@ export class GomuksClient {
     if (this.#runID && this.#lastReceived) {
       params.set('run_id', this.#runID)
       params.set('last_received_event', String(this.#lastReceived))
-      if (this.#listenerID) params.set('prev_listener_id', String(this.#listenerID))
+      // prev_listener_id is deliberately not sent. gomuks clears that listener's acknowledgement
+      // before subscribing us, and with no listener left to keep events for, its buffer garbage
+      // collection drops everything we're about to ask it to replay: the resume then finds nothing
+      // and falls back to a catch-up sync. The stale listener ages out of the buffer on its own.
       log.info(`connecting: resuming run ${this.#runID} after event ${this.#lastReceived}`)
     } else if (this.#serverTS) {
       log.info('connecting: catch-up sync')
