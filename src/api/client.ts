@@ -14,12 +14,16 @@ import { createSSEParser } from './sse'
 import type {
   EventContextResponse,
   EventID,
+  GetMentionsParams,
+  LocalSearchParams,
+  ManualPaginationResponse,
   MessageEventContent,
   PaginationResponse,
   RawDBEvent,
   RoomID,
   RPCEvent,
   SendMessageParams,
+  ServerSearchParams,
 } from './types'
 
 const PING_INTERVAL = 15_000
@@ -713,6 +717,21 @@ export class GomuksClient {
 
   resolveAlias(alias: string) {
     return this.exec<{ room_id: RoomID; servers: string[] }>('resolve_alias', { alias })
+  }
+
+  /** Searches gomuks' own index, which is the only way to search an encrypted room. */
+  searchLocal(params: LocalSearchParams, signal?: AbortSignal) {
+    return this.exec<ManualPaginationResponse>('search_local', params, signal)
+  }
+
+  /** Searches through the homeserver, which can't see encrypted rooms but knows more history. */
+  searchServer(params: ServerSearchParams, signal?: AbortSignal) {
+    return this.exec<ManualPaginationResponse>('search_server', params, signal)
+  }
+
+  /** Recent events that mention us, newest first. Answered from gomuks' database, never the homeserver. */
+  getMentions(params: GetMentionsParams, signal?: AbortSignal) {
+    return this.exec<RawDBEvent[] | null>('get_mentions', params, signal)
   }
 }
 

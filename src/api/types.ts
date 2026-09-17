@@ -273,6 +273,45 @@ export interface ManualPaginationResponse {
   next_batch?: string
 }
 
+/** search_local: gomuks' own SQLite index, the only one that can see into encrypted rooms. */
+export interface LocalSearchParams {
+  /** Passed straight to an SQLite fts5 MATCH query. */
+  search_term: string
+  /** An extra term matched against the raw content JSON. */
+  raw_like?: string
+  limit: number
+  /** Empty searches every room. */
+  room_ids?: RoomID[]
+  senders?: UserID[]
+  min_timestamp?: number
+  max_timestamp?: number
+  include_redacted?: boolean
+  /** Newest first instead of by relevance. */
+  sort_by_time?: boolean
+  /** From a previous response; every other parameter must stay identical. */
+  next_batch?: string
+}
+
+/** search_server: the homeserver's search, whose syntax is up to it. Can't see encrypted rooms. */
+export interface ServerSearchParams {
+  search_term: string
+  limit: number
+  room_ids?: RoomID[]
+  senders?: UserID[]
+  sort_by_time?: boolean
+  next_batch?: string
+}
+
+export interface GetMentionsParams {
+  /** The newest timestamp to return; the next page asks for just before the oldest result so far. */
+  max_timestamp: number
+  /** A UnreadType mask: Highlight alone, or Highlight | Notify for every notification. */
+  type: number
+  limit: number
+  /** Omitted to collect mentions from every room. */
+  room_id?: RoomID
+}
+
 export interface SendMessageParams {
   room_id: RoomID
   text: string

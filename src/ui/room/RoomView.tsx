@@ -1,6 +1,6 @@
-import { LayoutGrid, Lock, PanelRight, Pin, Search, Settings2, Upload, Video } from 'lucide-react'
+import { AtSign, LayoutGrid, Lock, PanelRight, Pin, Search, Settings2, TextSearch, Upload, Video } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useRef, useState, type DragEvent } from 'react'
+import { memo, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID, UserID } from '@/api/types'
 import { formatNames } from '@/lib/format'
@@ -9,7 +9,7 @@ import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePinnedEvents } from '@/store/pins'
-import { closePins, closeWidgets, openPins, openSettings, openWidget, openWidgetList, useUI } from '@/store/ui'
+import { closeRoomTool, closeWidgets, openRoomTool, openSettings, openWidget, openWidgetList, useUI, type RoomTool } from '@/store/ui'
 import { activeCallMembers, CALL_ROOM_TYPE, CALL_WIDGET_ID } from '@/store/widgets'
 import { LinkifiedText } from '@/ui/LinkifiedText'
 import { Avatar, IconButton } from '@/ui/primitives'
@@ -19,7 +19,7 @@ import { Composer } from './Composer'
 
 function RoomHeader({ roomID }: { roomID: RoomID }) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
-  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID && !s.widgetView && !s.pinsOpen)
+  const detailsVisible = useUI(s => s.drawerOpen && !s.threadRoot && !s.profileUserID && !s.widgetView && !s.roomTool)
   const widgetsVisible = useUI(s => !!s.widgetView && !s.threadRoot && !s.profileUserID)
   const callVisible = useUI(s => s.widgetView?.mode === 'widget' && s.widgetView.widgetID === CALL_WIDGET_ID && !s.threadRoot && !s.profileUserID)
   const inCall = useChat(s => activeCallMembers(s, roomID))
@@ -38,9 +38,15 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
           </p>
         )}
       </div>
-      <IconButton label="Search" shortcut="Ctrl K" onClick={() => useUI.setState({ paletteOpen: true })}>
+      <IconButton label="Jump to a room" shortcut="Ctrl K" onClick={() => useUI.setState({ paletteOpen: true })}>
         <Search size={17} />
       </IconButton>
+      <ToolButton tool="search" label="Search messages" shortcut="Ctrl F">
+        <TextSearch size={17} />
+      </ToolButton>
+      <ToolButton tool="mentions" label="Mentions">
+        <AtSign size={17} />
+      </ToolButton>
       <PinsButton roomID={roomID} />
       <IconButton
         label={inCall > 0 ? `Join the call (${inCall} in call)` : 'Start a call'}
@@ -65,7 +71,7 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
         label="Room details"
         shortcut="Ctrl ."
         data-active={detailsVisible || undefined}
-        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, pinsOpen: false })}
+        onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, roomTool: null })}
       >
         <PanelRight size={17} />
       </IconButton>
@@ -73,14 +79,24 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
   )
 }
 
+/** A right panel tool: opens its view, or closes it when it's the one already showing. */
+function ToolButton({ tool, label, shortcut, children }: { tool: RoomTool; label: string; shortcut?: string; children: ReactNode }) {
+  const visible = useUI(s => s.roomTool === tool && !s.threadRoot && !s.profileUserID && !s.widgetView)
+  return (
+    <IconButton label={label} shortcut={shortcut} data-active={visible || undefined} onClick={() => (visible ? closeRoomTool() : openRoomTool(tool))}>
+      {children}
+    </IconButton>
+  )
+}
+
 function PinsButton({ roomID }: { roomID: RoomID }) {
   const count = usePinnedEvents(roomID).length
-  const visible = useUI(s => s.pinsOpen && !s.threadRoot && !s.profileUserID && !s.widgetView)
+  const visible = useUI(s => s.roomTool === 'pins' && !s.threadRoot && !s.profileUserID && !s.widgetView)
   return (
     <IconButton
       label={count ? `Pinned messages (${count})` : 'Pinned messages'}
       data-active={visible || undefined}
-      onClick={() => (visible ? closePins() : openPins())}
+      onClick={() => (visible ? closeRoomTool() : openRoomTool('pins'))}
       className="relative"
     >
       <Pin size={17} />

@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useChat } from '@/store/chat'
 import { getRoomSort } from '@/store/preferences'
 import { roomIDsInRows, spaceListRows } from '@/store/spaces'
-import { MIN_TIMELINE_WIDTH, openRoom, useUI } from '@/store/ui'
+import { closeRoomTool, MIN_TIMELINE_WIDTH, openRoom, openRoomTool, useUI } from '@/store/ui'
 import { AppearanceDialog } from '@/ui/AppearanceDialog'
 import { Lightbox } from '@/ui/Lightbox'
 import { CommandPalette } from '@/ui/palette/CommandPalette'
@@ -49,19 +49,25 @@ function useGlobalShortcuts() {
       } else if (mod && e.key === '.') {
         e.preventDefault()
         // Shows room details (replacing a thread or profile on top), or hides them.
-        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID && !ui.widgetView && !ui.pinsOpen
-        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, pinsOpen: false })
+        const detailsVisible = ui.drawerOpen && !ui.threadRoot && !ui.profileUserID && !ui.widgetView && !ui.roomTool
+        useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, roomTool: null })
+      } else if (mod && e.key.toLowerCase() === 'f' && ui.activeRoomID) {
+        // Same binding gomuks uses for its search panel, in place of the browser's find.
+        e.preventDefault()
+        const searchVisible = ui.roomTool === 'search' && !ui.threadRoot && !ui.profileUserID && !ui.widgetView
+        if (searchVisible) closeRoomTool()
+        else openRoomTool('search')
       } else if (
         e.key === 'Escape' &&
         !isEditable(e.target) &&
-        (ui.profileUserID || ui.threadRoot || ui.widgetView?.mode === 'list' || (!ui.widgetView && (ui.pinsOpen || ui.drawerOpen)))
+        (ui.profileUserID || ui.threadRoot || ui.widgetView?.mode === 'list' || (!ui.widgetView && (!!ui.roomTool || ui.drawerOpen)))
       ) {
         // Close the top-most right panel view, revealing what's underneath. An open widget (a call)
         // isn't closed by Esc, which is too easy to hit by accident.
         if (ui.profileUserID) useUI.setState({ profileUserID: null })
         else if (ui.threadRoot) useUI.setState({ threadRoot: null })
         else if (ui.widgetView) useUI.setState({ widgetView: null })
-        else if (ui.pinsOpen) useUI.setState({ pinsOpen: false })
+        else if (ui.roomTool) useUI.setState({ roomTool: null })
         else useUI.setState({ drawerOpen: false })
       } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault()
@@ -123,7 +129,7 @@ export function Shell() {
   const activeRoomID = useUI(s => s.activeRoomID)
   const drawerOpen = useUI(s => s.drawerOpen)
   const widgetView = useUI(s => s.widgetView)
-  const pinsOpen = useUI(s => s.pinsOpen)
+  const roomTool = useUI(s => s.roomTool)
   const threadRoot = useUI(s => s.threadRoot)
   const profileUserID = useUI(s => s.profileUserID)
   const rightPanelWidth = useUI(s => s.rightPanelWidth)
@@ -139,8 +145,8 @@ export function Shell() {
           ? widgetView.mode === 'list'
             ? 'widgets'
             : 'widget'
-          : pinsOpen
-            ? 'pins'
+          : roomTool
+            ? roomTool
             : drawerOpen
               ? 'details'
               : null

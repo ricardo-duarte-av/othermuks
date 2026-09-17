@@ -104,6 +104,12 @@ export function jumpToEvent(roomID: RoomID, eventID: EventID) {
   void loadEventContext(roomID, eventID)
 }
 
+/** Jumps to a message that may be in another room, as search and mention results are. */
+export function jumpToEventAnywhere(roomID: RoomID, eventID: EventID) {
+  if (useUI.getState().activeRoomID !== roomID && useChat.getState().rooms[roomID]) openRoom(roomID)
+  jumpToEvent(roomID, eventID)
+}
+
 /** Follows a matrix.to or matrix: link inside the client. */
 export async function openMatrixTarget(target: MatrixTarget) {
   if (target.kind === 'user') {

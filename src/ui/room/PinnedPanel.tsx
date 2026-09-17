@@ -4,7 +4,7 @@ import type { EventID, RoomID } from '@/api/types'
 import { fetchEvent, useChat } from '@/store/chat'
 import { jumpToEvent, loadEventContext } from '@/store/navigation'
 import { setPinned, useCanPin, usePinnedEvents } from '@/store/pins'
-import { closePins, showToast } from '@/store/ui'
+import { closeRoomTool, showToast } from '@/store/ui'
 import { IconButton, Spinner } from '@/ui/primitives'
 import { TimelineRow } from '@/ui/timeline/TimelineRow'
 
@@ -21,7 +21,7 @@ export function PinnedPanel({ roomID }: { roomID: RoomID }) {
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
         <h2 className="text-sm font-semibold">Pinned messages</h2>
         {pins.length > 0 && <span className="rounded-full bg-surface-2 px-1.5 py-px text-xs tabular-nums text-muted">{pins.length}</span>}
-        <IconButton label="Close" shortcut="Esc" className="ml-auto" onClick={closePins}>
+        <IconButton label="Close" shortcut="Esc" className="ml-auto" onClick={closeRoomTool}>
           <X size={16} />
         </IconButton>
       </div>
