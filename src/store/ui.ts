@@ -189,6 +189,8 @@ export interface LightboxImage {
   placeholder?: string
   width?: number
   height?: number
+  /** Where it was opened from, so the viewer can zoom out of it: the box on screen and what filled it. */
+  from?: { rect: { top: number; left: number; width: number; height: number }; url?: string }
 }
 
 export function openLightbox(url: string, name?: string, extra: Omit<LightboxImage, 'url' | 'name'> = {}) {

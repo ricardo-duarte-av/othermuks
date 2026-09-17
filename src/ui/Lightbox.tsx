@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Download, ExternalLink, RotateCcw, RotateCw, X } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { showToast, useUI, type LightboxImage } from '@/store/ui'
 import { Spinner } from './primitives'
@@ -81,14 +81,48 @@ function placeholderSize(width: number | undefined, height: number | undefined, 
   return { width: Math.round(width * scale), height: Math.round(height * scale) }
 }
 
-function LightboxView({ url, name, placeholder, width, height }: LightboxImage) {
+function LightboxView({ url, name, placeholder, width, height, from }: LightboxImage) {
   const [rotation, setRotation] = useState(0)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const close = () => useUI.setState({ lightbox: null })
   const rotate = (delta: number) => setRotation(r => r + delta)
   const quarter = ((rotation % 360) + 360) % 360
   const sideways = quarter === 90 || quarter === 270
-  const placeholderBox = placeholder && status === 'loading' ? placeholderSize(width, height, sideways) : undefined
+  // The thumbnail is the better stand-in; the blurhash is what's left when there isn't one.
+  const preview = from?.url ?? placeholder
+  // Kept mounted a moment past the load so it can fade under the original instead of blinking away.
+  const [previewMounted, setPreviewMounted] = useState(true)
+  const previewBox = preview && previewMounted ? placeholderSize(width, height, sideways) : undefined
+  const stageRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (status !== 'loaded') return
+    const timer = setTimeout(() => setPreviewMounted(false), 250)
+    return () => clearTimeout(timer)
+  }, [status])
+
+  // Grow the stand-in out of the thumbnail that was clicked: measure where it lands, start it back at
+  // the thumbnail's box, then let the transition carry it in. Without a size to land in (an image whose
+  // dimensions the event didn't carry) there's nothing to animate between, so it just appears.
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    if (!stage || !from || !previewBox) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const dest = stage.getBoundingClientRect()
+    if (!dest.width || !dest.height) return
+    const scaleX = from.rect.width / dest.width
+    const scaleY = from.rect.height / dest.height
+    const dx = from.rect.left + from.rect.width / 2 - (dest.left + dest.width / 2)
+    const dy = from.rect.top + from.rect.height / 2 - (dest.top + dest.height / 2)
+    stage.style.transition = 'none'
+    stage.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`
+    const frame = requestAnimationFrame(() => {
+      stage.style.transition = ''
+      stage.style.transform = ''
+    })
+    return () => cancelAnimationFrame(frame)
+    // Only on open: rotating or loading later must not replay the zoom.
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -125,16 +159,23 @@ function LightboxView({ url, name, placeholder, width, height }: LightboxImage) 
           if (e.target === e.currentTarget) close()
         }}
       >
-        {placeholderBox && (
-          <img
-            src={placeholder}
-            alt=""
+        {previewBox && (
+          <div
+            ref={stageRef}
             aria-hidden
-            className="pointer-events-none absolute inset-0 m-auto transition-transform duration-200 ease-out"
-            style={{ ...placeholderBox, transform: `rotate(${rotation}deg)` }}
-          />
+            className="lightbox-zoom pointer-events-none absolute inset-0 m-auto transition-transform duration-300 ease-out"
+            style={previewBox}
+          >
+            <img
+              src={preview}
+              alt=""
+              // Fades out once the original has drawn over it, rather than blinking away.
+              className="size-full object-contain transition-opacity duration-200 ease-out"
+              style={{ transform: `rotate(${rotation}deg)`, opacity: status === 'loaded' ? 0 : 1 }}
+            />
+          </div>
         )}
-        {status === 'loading' && <Spinner size={28} className="absolute text-white/70" />}
+        {status === 'loading' && !previewBox && <Spinner size={28} className="absolute text-white/70" />}
         {status === 'error' ? (
           <p className="text-sm text-white/80">Couldn't load this image.</p>
         ) : (
