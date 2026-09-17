@@ -10,6 +10,7 @@ import {
   type ProbeSuccess,
 } from '@/api/backend'
 import { client, type ReceivedEvent } from '@/api/client'
+import type { EventRowID } from '@/api/types'
 import { formatMs, formatSize, log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
 import { handleRPCEvent, useChat } from './chat'
@@ -187,8 +188,44 @@ function updateTitle() {
   if (document.title !== title) document.title = title
 }
 
+/**
+ * Debug hook: `othermuks.room()` in the console prints what the open room's timeline actually holds,
+ * which is otherwise invisible from outside React.
+ */
+function installDebugHook() {
+  const summary = (rowid: EventRowID | undefined) => {
+    const evt = rowid === undefined ? undefined : useChat.getState().events[rowid]
+    return evt ? `${new Date(evt.timestamp).toLocaleString()} ${evt.sender}: ${String(evt.content.body ?? evt.type).slice(0, 40)}` : 'missing'
+  }
+  Object.assign(window, {
+    othermuks: {
+      chat: useChat,
+      ui: useUI,
+      client,
+      room(roomID = useUI.getState().activeRoomID) {
+        const s = useChat.getState()
+        const room = roomID ? s.rooms[roomID] : undefined
+        if (!room) return 'no room open'
+        const el = document.querySelector<HTMLElement>('.timeline')
+        return {
+          roomID,
+          rows: room.timeline.length,
+          hasMore: room.hasMore,
+          paginating: room.paginating,
+          oldest: summary(room.timeline[0]?.event_rowid),
+          newest: summary(room.timeline[room.timeline.length - 1]?.event_rowid),
+          preview: summary(room.meta.preview_event_rowid),
+          sorted: new Date(room.meta.sorting_timestamp).toLocaleString(),
+          scroll: el ? { top: Math.round(el.scrollTop), height: el.scrollHeight, client: el.clientHeight } : 'no timeline element',
+        }
+      },
+    },
+  })
+}
+
 export async function bootstrap() {
   markOnce('app started')
+  installDebugHook()
   updateTitle()
   useSession.subscribe(updateTitle)
   applyTheme(useUI.getState().theme)
