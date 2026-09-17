@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
-import { isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
+import { hasNoRenderer, isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
@@ -32,6 +32,9 @@ interface Item {
 /** Renderable, and not a message from someone the user ignores (their state events stay visible). */
 const isShown = (evt: TimelineEvent, filter: TimelineFilter, ignored: ReadonlySet<UserID>) =>
   isRenderable(evt, filter) && !(ignored.has(evt.sender) && isMessageLike(evt))
+
+/** Only real messages group under one avatar: an edit shown as a hidden event breaks the run. */
+const groupable = (evt: TimelineEvent) => isMessageLike(evt) && !hasNoRenderer(evt)
 
 function useVisibleRowIDs(roomID: RoomID, filter: TimelineFilter, ignored: ReadonlySet<UserID>) {
   return useChat(
@@ -163,8 +166,8 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       const compact =
         !!prev &&
         !dayChange &&
-        isMessageLike(prev) &&
-        isMessageLike(evt) &&
+        groupable(prev) &&
+        groupable(evt) &&
         prev.sender === evt.sender &&
         evt.timestamp - prev.timestamp < GROUP_WINDOW
       prev = evt

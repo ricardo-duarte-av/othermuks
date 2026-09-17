@@ -88,7 +88,12 @@ export const preferences = {
   ),
 
   display_read_receipts: bool('Timeline', 'Display read receipts', 'Should read receipts be rendered in the timeline?', true),
-  show_hidden_events: bool('Timeline', 'Show hidden events', 'Whether hidden events (e.g. member events that change nothing) should be visible in the room timeline.', true),
+  show_hidden_events: bool(
+    'Timeline',
+    'Show hidden events',
+    'Whether events the timeline has nothing to say about should appear as their raw type: reactions, edits, redactions, server ACLs, power level changes, member events that change nothing, and any type othermuks doesn’t render.',
+    true,
+  ),
   show_redacted_events: bool('Timeline', 'Show redacted event placeholders', 'Whether redacted events should leave a placeholder behind in the room timeline.', true),
   show_membership_events: bool('Timeline', 'Show membership events', 'Whether any membership events should be visible in the room timeline.', true),
   show_profile_changes: bool('Timeline', 'Show profile change events', 'Whether profile changes should be visible in the room timeline.', true),

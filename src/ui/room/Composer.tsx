@@ -5,7 +5,7 @@ import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
 import { customEmojiMarkdown, recordEmojiUse, sendSticker, type CustomEmoji } from '@/store/emoji'
-import { displayContent, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
+import { displayContent, hasNoRenderer, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
 import { useDisplayName } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePreference } from '@/store/preferences'
@@ -220,7 +220,10 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     } else {
       for (const tuple of rooms[roomID]?.timeline ?? []) {
         const evt = events[tuple.event_rowid]
-        if (evt && isMessageLike(evt) && isRenderable(evt) && !isPendingEvent(evt)) candidates.push(evt.rowid)
+        // Edits are message-like and can be shown as hidden events, but they're no use to reply to.
+        if (evt && isMessageLike(evt) && !hasNoRenderer(evt) && isRenderable(evt) && !isPendingEvent(evt)) {
+          candidates.push(evt.rowid)
+        }
       }
     }
     if (!candidates.length) return false

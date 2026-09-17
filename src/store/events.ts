@@ -103,9 +103,18 @@ export const DEFAULT_TIMELINE_FILTER: TimelineFilter = {
 
 const UNREDACTABLE_TYPES = new Set(['m.room.power_levels', 'm.room.create', 'm.room.member'])
 
-/** Events that exist but carry nothing to show, e.g. a member event that changes nothing (gomuks's rule). */
-function isHiddenEvent(evt: TimelineEvent): boolean {
-  if (evt.type === 'm.room.server_acl') return true
+/**
+ * Events othermuks has no renderer for: an edit (folded into its target), a reaction, a redaction, a
+ * server ACL, a power level change, a custom type. They show as their raw type, like gomuks web's
+ * HiddenEvent, rather than not at all.
+ */
+export function hasNoRenderer(evt: TimelineEvent): boolean {
+  if (evt.relation_type === 'm.replace') return true
+  return !isMessageLike(evt) && !(evt.state_key !== undefined && STATE_TYPES.has(evt.type))
+}
+
+/** A member event that changes nothing: it has a renderer, but nothing worth saying (gomuks's rule). */
+function isNoOpMemberEvent(evt: TimelineEvent): boolean {
   if (evt.type !== 'm.room.member') return false
   const prev = evt.unsigned.prev_content as Partial<MemberEventContent> | undefined
   return (
@@ -116,20 +125,26 @@ function isHiddenEvent(evt: TimelineEvent): boolean {
   )
 }
 
+/** What "Show hidden events" covers: nothing to say, or nothing to say it with. */
+function isHiddenEvent(evt: TimelineEvent): boolean {
+  return isNoOpMemberEvent(evt) || hasNoRenderer(evt)
+}
+
 /**
  * Whether an event gets its own row in the main timeline. Edits and reactions are folded into
  * their targets, thread replies live in the thread panel, and the filter hides what the user chose.
  */
 export function isRenderable(evt: TimelineEvent, filter: TimelineFilter = DEFAULT_TIMELINE_FILTER): boolean {
-  if (evt.relation_type === 'm.replace' || threadRootOf(evt)) return false
-  if (!isMessageLike(evt) && !(evt.state_key !== undefined && STATE_TYPES.has(evt.type))) return false
+  if (threadRootOf(evt)) return false
   if (evt.type === 'm.room.member') {
     if (!filter.showMembership) return false
     const prev = evt.unsigned.prev_content as Partial<MemberEventContent> | undefined
     if (!filter.showProfileChanges && prev?.membership === evt.content.membership) return false
   }
   if (evt.redacted_by && !filter.showRedacted && !UNREDACTABLE_TYPES.has(evt.type)) return false
-  if (!filter.showHidden && isHiddenEvent(evt)) return false
+  // Everything the timeline can't describe is a hidden event, so the preference governs all of it and
+  // not just the handful of types that happened to have a renderer already.
+  if (isHiddenEvent(evt)) return filter.showHidden
   return true
 }
 
