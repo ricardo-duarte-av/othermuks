@@ -184,6 +184,14 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   const jumping = useRef(false)
   const anchor = useRef<{ rowid: EventRowID; offset: number } | null>(null)
   const firstRowID = useRef<EventRowID | undefined>(undefined)
+  /**
+   * The last scrollTop this component set itself. Rows are measured after they render, and the first
+   * screenful of a room is estimated at 64px a row when a message with an image is several times that,
+   * so the content can grow by thousands of pixels between pinning to the bottom and the scroll event
+   * that pin triggers. Reading that event as the user scrolling away detached the timeline from the
+   * bottom for good: it stayed parked in old history while new messages piled up below.
+   */
+  const programmatic = useRef<number | null>(null)
 
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -200,6 +208,10 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   const onScroll = () => {
     const el = scrollRef.current
     if (!el) return
+    if (programmatic.current !== null && Math.abs(el.scrollTop - programmatic.current) < 1) {
+      programmatic.current = null
+      return
+    }
     const wasAtBottom = atBottom.current
     const reachedBottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD
     if (jumping.current) {
@@ -226,11 +238,16 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     firstRowID.current = items[0].rowid
     if (atBottom.current) {
       el.scrollTop = el.scrollHeight
+      // Read back: the browser clamps to the maximum, and that's the value the scroll event reports.
+      programmatic.current = el.scrollTop
     } else if (prevFirst !== undefined && prevFirst !== items[0].rowid && anchor.current) {
       const { rowid, offset } = anchor.current
       const index = items.findIndex(item => item.rowid === rowid)
       const measurement = index >= 0 ? virtualizer.measurementsCache[index] : undefined
-      if (measurement) el.scrollTop = measurement.start - offset
+      if (measurement) {
+        el.scrollTop = measurement.start - offset
+        programmatic.current = el.scrollTop
+      }
     }
   }, [items, totalSize, virtualizer])
 
