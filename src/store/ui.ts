@@ -10,6 +10,8 @@ export const THEMES = [
   { id: 'dracula', label: 'Dracula', codeblock: 'dracula' },
   { id: 'mocha', label: 'Catppuccin Mocha', codeblock: 'catppuccin-mocha' },
   { id: 'nord', label: 'Nord', codeblock: 'nord' },
+  { id: 'gruvbox', label: 'Gruvbox', codeblock: 'gruvbox' },
+  { id: 'gruvbox-light', label: 'Gruvbox Light', codeblock: 'gruvbox-light' },
 ] as const
 
 export type ThemeID = (typeof THEMES)[number]['id']

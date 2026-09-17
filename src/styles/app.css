@@ -176,6 +176,54 @@
   color-scheme: dark;
 }
 
+/* Gruvbox dark: bg0_h as the ground, bg0/bg1 for raised surfaces, fg1 for text, orange as the accent. */
+[data-theme="gruvbox"] {
+  --bg: oklch(0.241 0.005 220);
+  --surface: oklch(0.277 0.004 90);
+  --surface-2: oklch(0.344 0.007 48);
+  --hover: oklch(0.411 0.012 52 / 0.6);
+  --border: oklch(0.411 0.012 52 / 0.8);
+  --fg: oklch(0.894 0.057 89);
+  --muted: oklch(0.69 0.035 76);
+  --accent: oklch(0.731 0.182 52);
+  --accent-fg: oklch(0.241 0.005 220);
+  --danger: oklch(0.66 0.218 30);
+  --success: oklch(0.765 0.158 111);
+  --user-color-0: oklch(0.66 0.218 30);
+  --user-color-1: oklch(0.731 0.182 52);
+  --user-color-2: oklch(0.832 0.159 83);
+  --user-color-3: oklch(0.765 0.158 111);
+  --user-color-4: oklch(0.756 0.108 138);
+  --user-color-5: oklch(0.693 0.042 170);
+  --user-color-6: oklch(0.705 0.098 2);
+  --user-color-7: oklch(0.69 0.035 76);
+  color-scheme: dark;
+}
+
+/* Gruvbox light: the same hues on the cream bg0, with the darker "faded" accent colours for contrast. */
+[data-theme="gruvbox-light"] {
+  --bg: oklch(0.956 0.055 96);
+  --surface: oklch(0.894 0.057 89);
+  --surface-2: oklch(0.825 0.051 85);
+  --hover: oklch(0.825 0.051 85 / 0.7);
+  --border: oklch(0.756 0.041 82);
+  --fg: oklch(0.277 0.004 90);
+  --muted: oklch(0.482 0.018 61);
+  --accent: oklch(0.513 0.162 39);
+  --accent-fg: oklch(0.956 0.055 96);
+  --danger: oklch(0.437 0.179 28);
+  --success: oklch(0.546 0.112 107);
+  --user-color-0: oklch(0.437 0.179 28);
+  --user-color-1: oklch(0.513 0.162 39);
+  --user-color-2: oklch(0.618 0.128 71);
+  --user-color-3: oklch(0.546 0.112 107);
+  --user-color-4: oklch(0.534 0.082 155);
+  --user-color-5: oklch(0.471 0.082 216);
+  --user-color-6: oklch(0.489 0.124 344);
+  --user-color-7: oklch(0.482 0.018 61);
+  color-scheme: light;
+}
+
 @layer base {
   html,
   body,
