@@ -244,6 +244,18 @@ function applySync(data: SyncCompleteData) {
   const tables = new EventTables(s, clear)
   let orderDirty = clear
 
+  // A catch-up sync (the reconnect couldn't resume from gomuks' event buffer) describes rooms with
+  // metadata and their preview event, never with timeline tuples. Anything that arrived while the
+  // connection was down is therefore missing from every timeline already loaded, and nothing later
+  // fills the gap, so they're dropped here and paginated again when the room is next shown. Rooms
+  // restored from the cache start without a timeline anyway, so a catch-up on load costs nothing.
+  if (!clear && data.catchup) {
+    for (const [roomID, room] of Object.entries(rooms)) {
+      if (!room.timeline.length) continue
+      rooms[roomID] = { ...room, timeline: [], hasMore: true }
+    }
+  }
+
   for (const [roomID, sync] of Object.entries(data.rooms ?? {})) {
     tables.add(sync.events)
     const prev = rooms[roomID]
