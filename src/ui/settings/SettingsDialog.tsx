@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Cloud, Hash, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { useChat } from '@/store/chat'
@@ -136,6 +137,11 @@ function WebPushStatusRow({ columns }: { columns: number }) {
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
+type Section = 'preferences' | 'ignored'
+
+/** Avatar plus two lines of text; the virtualizer needs one fixed height for every row. */
+const IGNORED_ROW_HEIGHT = 49
+
 export function SettingsDialog() {
   const settings = useUI(s => s.settings)
   return (
@@ -158,30 +164,24 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
   const roomChoice = initialRoomID ?? activeRoomID
   const [roomID, setRoomID] = useState<RoomID | null>(initialRoomID)
   const roomName = useChat(s => (roomChoice ? (s.rooms[roomChoice]?.meta.name ?? roomChoice) : undefined))
-  const [query, setQuery] = useState('')
-  const [changedOnly, setChangedOnly] = useState(false)
-
-  // Subscriptions that re-render the table when a scope changes; values are read below.
-  useChat(s => s.accountData[PREFERENCES_EVENT_TYPE])
-  useChat(s => (roomID ? s.rooms[roomID]?.accountData[PREFERENCES_EVENT_TYPE] : undefined))
-  const local = useLocalPrefs()
-  const chat = useChat.getState()
-
-  const columns = COLUMNS.filter(column => roomID || !column.room)
-  const values = new Map(columns.map(column => [column.context, scopeValues(column.context, chat, local, roomID)]))
-
-  const needle = query.trim().toLowerCase()
-  const entries = (Object.entries(preferences) as [PreferenceKey, Preference][]).filter(([key, pref]) => {
-    if (needle && ![key, pref.displayName, pref.description].some(text => text.toLowerCase().includes(needle))) return false
-    if (changedOnly && !columns.some(column => values.get(column.context)?.[key] !== undefined)) return false
-    return true
-  })
+  const [section, setSection] = useState<Section>('preferences')
+  const ignoredCount = useIgnoredUsers().size
 
   return (
     <>
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <Dialog.Title className="text-sm font-semibold">Settings</Dialog.Title>
-        {roomChoice && (
+        <div role="tablist" aria-label="Section" className="flex min-w-0 gap-1 rounded-lg bg-bg p-0.5">
+          <ScopeTab selected={section === 'preferences'} onClick={() => setSection('preferences')}>
+            Preferences
+          </ScopeTab>
+          <ScopeTab selected={section === 'ignored'} onClick={() => setSection('ignored')}>
+            <UserX size={12} className="shrink-0" />
+            Ignored
+            {ignoredCount > 0 && <span className="rounded-full bg-surface-2 px-1.5 py-px text-[10px] tabular-nums">{ignoredCount}</span>}
+          </ScopeTab>
+        </div>
+        {section === 'preferences' && roomChoice && (
           <div role="tablist" aria-label="Scope" className="flex min-w-0 gap-1 rounded-lg bg-bg p-0.5">
             <ScopeTab selected={!roomID} onClick={() => setRoomID(null)}>
               Global
@@ -207,6 +207,34 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
         </Dialog.Close>
       </header>
 
+      {section === 'ignored' ? <IgnoredUsersPanel /> : <PreferencesSection roomID={roomID} />}
+    </>
+  )
+}
+
+/** The preference table and its filters: everything the ignored-users section replaces. */
+function PreferencesSection({ roomID }: { roomID: RoomID | null }) {
+  const [query, setQuery] = useState('')
+  const [changedOnly, setChangedOnly] = useState(false)
+
+  // Subscriptions that re-render the table when a scope changes; values are read below.
+  useChat(s => s.accountData[PREFERENCES_EVENT_TYPE])
+  useChat(s => (roomID ? s.rooms[roomID]?.accountData[PREFERENCES_EVENT_TYPE] : undefined))
+  const local = useLocalPrefs()
+  const chat = useChat.getState()
+
+  const columns = COLUMNS.filter(column => roomID || !column.room)
+  const values = new Map(columns.map(column => [column.context, scopeValues(column.context, chat, local, roomID)]))
+
+  const needle = query.trim().toLowerCase()
+  const entries = (Object.entries(preferences) as [PreferenceKey, Preference][]).filter(([key, pref]) => {
+    if (needle && ![key, pref.displayName, pref.description].some(text => text.toLowerCase().includes(needle))) return false
+    if (changedOnly && !columns.some(column => values.get(column.context)?.[key] !== undefined)) return false
+    return true
+  })
+
+  return (
+    <>
       <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
         <label className="flex h-8 min-w-48 flex-1 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-sm focus-within:border-accent">
           <Search size={14} className="shrink-0 text-muted" />
@@ -278,36 +306,75 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
           })}
           {!entries.length && <p className="col-span-full py-10 text-center text-sm text-muted">No settings match</p>}
         </div>
-        {(!needle || 'ignored users'.includes(needle)) && <IgnoredUsersSection />}
       </div>
     </>
   )
 }
 
-/** Everyone in m.ignored_user_list, with a way to stop ignoring them. */
-function IgnoredUsersSection() {
+/**
+ * Everyone in m.ignored_user_list, with a way to stop ignoring them. Its own settings section because
+ * the list runs to hundreds of people, and virtualized because each row looks up a global profile:
+ * rendering them all at once would fire one get_profile per ignored user.
+ */
+function IgnoredUsersPanel() {
   const ignored = useIgnoredUsers()
-  const list = [...ignored].sort()
+  const [query, setQuery] = useState('')
+  const needle = query.trim().toLowerCase()
+  const list = [...ignored].sort().filter(userID => !needle || userID.toLowerCase().includes(needle))
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: list.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => IGNORED_ROW_HEIGHT,
+    getItemKey: index => list[index],
+    overscan: 8,
+  })
+
   return (
-    <section className="ignored-users mt-8 max-w-2xl">
-      <h3 className="flex items-center gap-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-        <UserX size={13} /> Ignored users
-        {list.length > 0 && <span className="rounded-full bg-surface-2 px-1.5 py-px text-[10px] normal-case tracking-normal">{list.length}</span>}
-      </h3>
-      <p className="mb-3 text-xs text-muted">
+    <>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
+        <label className="flex h-8 min-w-48 flex-1 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-sm focus-within:border-accent">
+          <Search size={14} className="shrink-0 text-muted" />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Filter ignored users"
+            className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted"
+          />
+        </label>
+        <span className="text-xs tabular-nums text-muted">
+          {needle ? `${list.length} of ${ignored.size}` : `${ignored.size} ignored`}
+        </span>
+      </div>
+
+      <p className="shrink-0 px-4 pt-3 text-xs text-muted">
         Ignored people's messages are hidden and they can't invite you. The list is saved on your account, so it applies to all your
         clients. Ignore someone from their profile.
       </p>
-      {list.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted">You're not ignoring anyone.</p>
-      ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-          {list.map(userID => (
-            <IgnoredUserRow key={userID} userID={userID} />
-          ))}
-        </ul>
-      )}
-    </section>
+
+      <div ref={scrollRef} className="ignored-users min-h-0 flex-1 overflow-auto px-4 pb-4 pt-3">
+        {ignored.size === 0 ? (
+          <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted">You're not ignoring anyone.</p>
+        ) : list.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted">Nobody matches</p>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualizer.getVirtualItems().map(item => (
+                <div
+                  key={item.key}
+                  className="absolute inset-x-0 top-0 border-b border-border last:border-b-0"
+                  style={{ height: item.size, transform: `translateY(${item.start}px)` }}
+                >
+                  <IgnoredUserRow userID={list[item.index]} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -334,7 +401,7 @@ function IgnoredUserRow({ userID }: { userID: string }) {
   }
 
   return (
-    <li className="flex items-center gap-3 bg-surface px-3 py-2">
+    <div className="flex h-full items-center gap-3 bg-surface px-3">
       <Avatar mxc={avatar} id={userID} name={name} size={32} />
       <span className="min-w-0 flex-1 leading-tight">
         <span className="block truncate text-sm font-medium">{name}</span>
@@ -348,7 +415,7 @@ function IgnoredUserRow({ userID }: { userID: string }) {
       >
         {busy ? <Spinner size={12} /> : <UserCheck size={13} />} Unignore
       </button>
-    </li>
+    </div>
   )
 }
 
