@@ -4,7 +4,8 @@ import { memo, useEffect, useRef, useState, type DragEvent, type ReactNode } fro
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID, UserID } from '@/api/types'
 import { formatNames } from '@/lib/format'
-import { loadRoomState, selectOwnUserID, uploadAndSend, useChat } from '@/store/chat'
+import { attachmentKey, stageAttachments } from '@/store/attachments'
+import { loadRoomState, selectOwnUserID, useChat } from '@/store/chat'
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
@@ -238,7 +239,8 @@ export function RoomView({ roomID }: { roomID: RoomID }) {
         e.preventDefault()
         dragDepth.current = 0
         setDragging(false)
-        uploadAndSend(roomID, Array.from(e.dataTransfer.files)).catch(err => console.error('Upload failed', err))
+        // Staged, not sent: the composer adds a caption and any reply before it goes.
+        stageAttachments(attachmentKey(roomID), Array.from(e.dataTransfer.files))
       }}
     >
       <RoomHeader roomID={roomID} />

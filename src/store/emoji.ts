@@ -309,5 +309,5 @@ export function customEmojiMarkdown(emoji: Pick<CustomEmoji, 'key' | 'shortcode'
 
 export function sendSticker(roomID: RoomID, emoji: CustomEmoji, threadRoot?: EventID) {
   const content = { msgtype: 'm.sticker', body: emoji.title, url: emoji.key, info: emoji.info ?? {} } as MessageEventContent
-  return sendMedia(roomID, content, threadRoot)
+  return sendMedia(roomID, content, { threadRoot })
 }

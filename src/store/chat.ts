@@ -585,22 +585,42 @@ export async function sendText(roomID: RoomID, text: string, { replyTo, edit, th
   if (evt) addLocalEcho(roomID, evt, !edit)
 }
 
-export async function sendMedia(roomID: RoomID, content: MessageEventContent, threadRoot?: EventID) {
+/**
+ * Sends already-uploaded media. `caption` becomes the message body, which gomuks merges into the media
+ * content, leaving its filename in place; replies relate the same way a text message's do.
+ */
+export async function sendMedia(
+  roomID: RoomID,
+  content: MessageEventContent,
+  { replyTo, threadRoot, caption }: Omit<SendOptions, 'edit'> & { caption?: string } = {},
+) {
+  let relates_to: RelatesTo | undefined
+  if (threadRoot) relates_to = threadRelation(threadRoot, replyTo)
+  else if (replyTo) relates_to = { 'm.in_reply_to': { event_id: replyTo.event_id } }
+  const ownUserID = selectOwnUserID(get())
+  const user_ids = replyTo && replyTo.sender !== ownUserID ? [replyTo.sender] : []
   const evt = await client.sendMessage({
     room_id: roomID,
-    text: '',
+    text: caption ?? '',
     base_content: content,
-    relates_to: threadRoot ? threadRelation(threadRoot) : undefined,
-    mentions: { user_ids: [], room: false },
+    relates_to,
+    mentions: { user_ids, room: false },
     url_previews: [],
   })
   if (evt) addLocalEcho(roomID, evt, true)
 }
 
-export async function uploadAndSend(roomID: RoomID, files: Iterable<File>, threadRoot?: EventID) {
+/** Uploads and sends each file. Only the first carries the caption, so it isn't repeated under every one. */
+export async function uploadAndSend(
+  roomID: RoomID,
+  files: Iterable<File>,
+  options: Omit<SendOptions, 'edit'> & { caption?: string } = {},
+) {
   const encrypt = !!get().rooms[roomID]?.meta.encryption_event
+  let first = true
   for (const file of files) {
-    await sendMedia(roomID, await client.upload(file, encrypt), threadRoot)
+    await sendMedia(roomID, await client.upload(file, encrypt), first ? options : { ...options, caption: undefined })
+    first = false
   }
 }
 

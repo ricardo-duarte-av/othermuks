@@ -1,8 +1,10 @@
-import { Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
+import { File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { client } from '@/api/client'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
+import { formatBytes } from '@/lib/format'
+import { attachmentKey, clearAttachments, removeAttachment, stageAttachments, useStagedFiles } from '@/store/attachments'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
 import { customEmojiMarkdown, recordEmojiUse, sendSticker, type CustomEmoji } from '@/store/emoji'
 import { displayContent, hasNoRenderer, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
@@ -17,6 +19,50 @@ import { readSkinTone } from '@/ui/emoji/unicode'
 import { IconButton, Spinner } from '@/ui/primitives'
 import { ReplyPreview } from '@/ui/timeline/TimelineRow'
 import { mentionMarkdown, MentionSuggestions, useMemberSuggestions, type MemberSuggestion } from './MentionSuggestions'
+
+/** A staged file: images and videos show themselves, anything else shows its name. */
+function AttachmentPreview({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const visual = file.type.startsWith('image/') || file.type.startsWith('video/')
+
+  useEffect(() => {
+    if (!visual) return
+    const objectURL = URL.createObjectURL(file)
+    setUrl(objectURL)
+    return () => {
+      URL.revokeObjectURL(objectURL)
+      setUrl(null)
+    }
+  }, [file, visual])
+
+  return (
+    <div className="composer-attachment group relative shrink-0" title={`${file.name} (${formatBytes(file.size)})`}>
+      {visual && url ? (
+        file.type.startsWith('image/') ? (
+          <img src={url} alt={file.name} className="size-16 rounded-lg border border-border object-cover" />
+        ) : (
+          <video src={url} muted className="size-16 rounded-lg border border-border object-cover" />
+        )
+      ) : (
+        <div className="flex h-16 w-36 flex-col justify-center gap-0.5 rounded-lg border border-border bg-bg px-2">
+          <span className="flex items-center gap-1.5 truncate text-xs font-medium">
+            <FileIcon size={13} className="shrink-0 text-muted" />
+            <span className="truncate">{file.name}</span>
+          </span>
+          <span className="pl-[19px] text-[11px] text-muted">{formatBytes(file.size)}</span>
+        </div>
+      )}
+      <button
+        type="button"
+        aria-label={`Remove ${file.name}`}
+        onClick={onRemove}
+        className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border border-border bg-surface text-muted shadow transition-colors hover:bg-danger hover:text-white"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  )
+}
 
 const TYPING_TIMEOUT = 10_000
 const TYPING_RESEND = 4_000
@@ -48,6 +94,8 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const ctrlArrowReply = usePreference('ctrl_arrow_reply', roomID)
   const refocusAfterSend = usePreference('refocus_input_after_send', roomID)
 
+  const attachKey = attachmentKey(roomID, threadRoot)
+  const attachments = useStagedFiles(attachKey)
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '')
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(0)
@@ -107,7 +155,8 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
 
   async function submit() {
     const body = text.trim()
-    if (!body) return
+    // Attachments can go out with no caption at all; text alone still needs something to send.
+    if (!body && !attachments.length) return
     const opts = { replyTo, edit: editing, threadRoot }
     setText('')
     setError(null)
@@ -116,6 +165,24 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     stopTyping()
     // Sending from the room composer returns to the present if an older context view is open.
     if (!threadRoot && useEventContext.getState().view?.roomID === roomID) closeEventContext()
+
+    if (attachments.length && !editing) {
+      const files = attachments
+      clearAttachments(attachKey)
+      setUploading(n => n + files.length)
+      try {
+        await uploadAndSend(roomID, files, { replyTo, threadRoot, caption: body || undefined })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+        // Nothing was sent, or only some of it was: hand the files and the caption back.
+        stageAttachments(attachKey, files)
+        setText(body)
+      } finally {
+        setUploading(n => n - files.length)
+      }
+      return
+    }
+
     try {
       await sendText(roomID, body, opts)
     } catch (err) {
@@ -124,17 +191,15 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     }
   }
 
-  async function upload(files: File[]) {
+  function attach(files: File[]) {
     if (!files.length) return
-    setUploading(n => n + files.length)
-    setError(null)
-    try {
-      await uploadAndSend(roomID, files, threadRoot)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setUploading(n => n - files.length)
+    if (editing) {
+      setError('Finish or cancel the edit before attaching files.')
+      return
     }
+    setError(null)
+    stageAttachments(attachKey, files)
+    inputRef.current?.focus()
   }
 
   async function sendStickerPick(emoji: CustomEmoji) {
@@ -268,9 +333,12 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     } else if (e.key === 'Escape' && (replyTo || editing)) {
       e.preventDefault()
       cancelContext()
+    } else if (e.key === 'Escape' && attachments.length) {
+      e.preventDefault()
+      clearAttachments(attachKey)
     } else if (mod && ctrlArrowReply && !editing && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       if (stepReply(e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault()
-    } else if (e.key === 'ArrowUp' && !mod && !text && !editing) {
+    } else if (e.key === 'ArrowUp' && !mod && !text && !editing && !attachments.length) {
       const last = findLastOwnEditable(roomID, threadRoot)
       if (last) {
         e.preventDefault()
@@ -331,14 +399,30 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           )}
         </div>
       )}
+      {attachments.length > 0 && (
+        <div
+          className={cn(
+            'composer-attachments flex gap-2 overflow-x-auto border border-b-0 border-border bg-surface-2/40 px-3 py-2',
+            context ? '' : 'rounded-t-xl',
+          )}
+        >
+          {attachments.map((file, index) => (
+            <AttachmentPreview
+              key={`${file.name}:${file.size}:${file.lastModified}:${index}`}
+              file={file}
+              onRemove={() => removeAttachment(attachKey, index)}
+            />
+          ))}
+        </div>
+      )}
       <div
         className={cn(
           'composer flex items-end gap-1 border border-border px-1.5 py-1.5 shadow-sm transition-colors focus-within:border-accent/60',
-          context ? 'rounded-b-xl' : 'rounded-xl',
+          context || attachments.length ? 'rounded-b-xl' : 'rounded-xl',
         )}
       >
-        <IconButton label="Attach files" onClick={() => fileRef.current?.click()} disabled={uploading > 0}>
-          {uploading > 0 ? <Spinner size={17} /> : <Paperclip size={17} />}
+        <IconButton label="Attach files" onClick={() => fileRef.current?.click()} disabled={uploading > 0 || !!editing}>
+          <Paperclip size={17} />
         </IconButton>
         <textarea
           id={threadRoot ? undefined : 'composer-input'}
@@ -346,7 +430,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           rows={1}
           value={text}
           autoFocus
-          placeholder={threadRoot ? 'Reply in thread…' : 'Send a message…'}
+          placeholder={attachments.length ? 'Add a caption…' : threadRoot ? 'Reply in thread…' : 'Send a message…'}
           aria-label={threadRoot ? 'Reply in thread' : roomName ? `Message ${roomName}` : 'Message'}
           aria-autocomplete="list"
           aria-expanded={suggesting}
@@ -361,7 +445,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
             const files = Array.from(e.clipboardData.files)
             if (files.length) {
               e.preventDefault()
-              void upload(files)
+              attach(files)
             }
           }}
           className="max-h-60 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[15px] leading-5 outline-none [field-sizing:content] placeholder:text-muted"
@@ -399,10 +483,10 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
             void submit()
             if (refocusAfterSend) inputRef.current?.focus()
           }}
-          disabled={!text.trim()}
+          disabled={(!text.trim() && !attachments.length) || uploading > 0}
           className="enabled:text-accent"
         >
-          <SendHorizontal size={17} />
+          {uploading > 0 ? <Spinner size={17} /> : <SendHorizontal size={17} />}
         </IconButton>
         <input
           ref={fileRef}
@@ -410,7 +494,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           multiple
           hidden
           onChange={e => {
-            void upload(Array.from(e.target.files ?? []))
+            attach(Array.from(e.target.files ?? []))
             e.target.value = ''
           }}
         />
