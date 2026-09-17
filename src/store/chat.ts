@@ -16,6 +16,7 @@ import type {
   EventRowID,
   EventType,
   ManualPaginationResponse,
+  MemberEventContent,
   MessageEventContent,
   RawDBEvent,
   RelatesTo,
@@ -455,6 +456,60 @@ export function applyStateEvents(stateEvents: RawDBEvent[]) {
     changed = true
   }
   set({ ...tables.patch, ...(changed ? { rooms } : {}) })
+}
+
+// Member events for people whose m.room.member isn't in the store: a search result from a room whose
+// state was never loaded, a reply to someone who has since left. Requests are deduplicated per room
+// and user, and everything asked for in one tick goes out as a single get_specific_room_state, the
+// way gomuks web batches its own member requests.
+const requestedMembers = new Set<string>()
+let pendingMembers: { room_id: RoomID; type: string; state_key: string }[] = []
+let memberFlush: Promise<void> | null = null
+
+/**
+ * Asks for one member event, if it isn't known already. The per-room member event is what the
+ * timeline shows; get_profile is the global profile, which only the user profile panel wants.
+ */
+export function requestMember(roomID: RoomID, userID: UserID) {
+  const s = get()
+  const room = s.rooms[roomID]
+  if (!room || room.state['m.room.member']?.[userID] !== undefined) return
+  // A room whose full member list is loading or loaded answers this from state; asking per user would
+  // just duplicate that. What's left is rooms nothing has opened: search results, mentions, pins.
+  if (room.membersLoaded) return
+  const key = `${roomID} ${userID}`
+  if (requestedMembers.has(key)) return
+  requestedMembers.add(key)
+  pendingMembers.push({ room_id: roomID, type: 'm.room.member', state_key: userID })
+  memberFlush ??= Promise.resolve().then(async () => {
+    const keys = pendingMembers
+    pendingMembers = []
+    memberFlush = null
+    try {
+      const events = await client.getSpecificRoomState(keys)
+      if (events?.length) applyStateEvents(events)
+    } catch (err) {
+      // A miss is normal (the user may never have been in the room); the name just stays a fallback.
+      console.warn('Failed to load member events', keys, err)
+      for (const { room_id, state_key } of keys) requestedMembers.delete(`${room_id} ${state_key}`)
+    }
+  })
+}
+
+/**
+ * The first member event for a user in any room we have, for lists with no room of their own (the
+ * ignored users list). Read once rather than subscribed to: it costs a lookup per room, and saves
+ * a get_profile per name.
+ */
+export function findKnownMember(userID: UserID): MemberEventContent | undefined {
+  const s = get()
+  for (const room of Object.values(s.rooms)) {
+    const rowid = room.state['m.room.member']?.[userID]
+    if (rowid === undefined) continue
+    const content = s.events[rowid]?.content as unknown as MemberEventContent | undefined
+    if (content?.displayname || content?.avatar_url) return content
+  }
+  return undefined
 }
 
 const fetchingEvents = new Set<EventID>()

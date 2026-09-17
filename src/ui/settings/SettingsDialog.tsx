@@ -1,10 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Cloud, Hash, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
-import { useChat } from '@/store/chat'
+import { findKnownMember, useChat } from '@/store/chat'
 import {
   isValidValue,
   PREFERENCES_EVENT_TYPE,
@@ -24,7 +24,6 @@ import { clearRoomCache } from '@/store/cache'
 import { fallbackDisplayName } from '@/store/events'
 import { clearMediaCache } from '@/store/mediacache'
 import { setIgnored, useIgnoredUsers } from '@/store/ignored'
-import { loadProfile, useProfiles } from '@/store/profiles'
 import { Avatar, Spinner } from '@/ui/primitives'
 
 interface Column {
@@ -379,15 +378,13 @@ function IgnoredUsersPanel() {
 }
 
 function IgnoredUserRow({ userID }: { userID: string }) {
-  const profile = useProfiles(s => s.profiles[userID]?.profile)
   const [busy, setBusy] = useState(false)
+  // Whatever any shared room knows about them. get_profile would be a request per ignored user, and
+  // the global profile isn't what's shown anywhere else either.
+  const member = useMemo(() => findKnownMember(userID), [userID])
 
-  useEffect(() => {
-    void loadProfile(userID)
-  }, [userID])
-
-  const name = typeof profile?.displayname === 'string' && profile.displayname ? profile.displayname : fallbackDisplayName(userID)
-  const avatar = typeof profile?.avatar_url === 'string' ? profile.avatar_url : undefined
+  const name = typeof member?.displayname === 'string' && member.displayname ? member.displayname : fallbackDisplayName(userID)
+  const avatar = typeof member?.avatar_url === 'string' ? member.avatar_url : undefined
 
   const unignore = async () => {
     setBusy(true)

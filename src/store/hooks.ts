@@ -1,15 +1,19 @@
 import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, MemberEventContent, RoomID, UserID } from '@/api/types'
-import { useChat } from './chat'
+import { requestMember, useChat } from './chat'
 import { displayNameOf } from './events'
 import type { PowerLevelsContent } from './power'
 
 export function useMember(roomID: RoomID, userID: UserID | undefined): MemberEventContent | undefined {
-  return useChat(s => {
+  const member = useChat(s => {
     if (!userID) return undefined
     const rowid = s.rooms[roomID]?.state['m.room.member']?.[userID]
     return rowid === undefined ? undefined : (s.events[rowid]?.content as unknown as MemberEventContent | undefined)
   })
+  // Rooms whose state was never loaded (a search result, a mention from elsewhere) have no member
+  // events, so fetch just this one rather than the room's whole member list.
+  if (!member && userID) requestMember(roomID, userID)
+  return member
 }
 
 /** Per-room display name, falling back to the capitalized localpart. */
