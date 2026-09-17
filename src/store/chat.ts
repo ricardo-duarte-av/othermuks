@@ -51,6 +51,12 @@ export interface RoomData {
   hasMore: boolean
   paginating: boolean
   membersLoaded: boolean
+  /**
+   * Bumped whenever the timeline is discarded (a catch-up sync, or a reset from gomuks). A pagination
+   * that started before the bump describes a timeline that no longer exists: merging its page in would
+   * leave the room holding history with the newest messages missing.
+   */
+  generation: number
 }
 
 interface ChatState {
@@ -113,6 +119,7 @@ function newRoom(meta: DBRoom): RoomData {
     hasMore: true,
     paginating: false,
     membersLoaded: false,
+    generation: 0,
   }
 }
 
@@ -253,7 +260,7 @@ function applySync(data: SyncCompleteData) {
   if (!clear && data.catchup) {
     for (const [roomID, room] of Object.entries(rooms)) {
       if (!room.timeline.length) continue
-      rooms[roomID] = { ...room, timeline: [], hasMore: true }
+      rooms[roomID] = { ...room, timeline: [], hasMore: true, paginating: false, generation: room.generation + 1 }
     }
   }
 
@@ -269,6 +276,8 @@ function applySync(data: SyncCompleteData) {
     if (sync.reset) {
       room.timeline = []
       room.hasMore = true
+      room.paginating = false
+      room.generation++
     }
     if (sync.timeline?.length) {
       room.timeline = mergeTimeline(room.timeline, sync.timeline)
@@ -391,12 +400,20 @@ function addLocalEcho(roomID: RoomID, raw: RawDBEvent, pending: boolean) {
 export async function loadOlder(roomID: RoomID) {
   const room = get().rooms[roomID]
   if (!room || room.paginating || !room.hasMore) return
+  const generation = room.generation
   patchRoom(roomID, { paginating: true })
   try {
     const resp = await client.paginate(roomID, room.timeline[0]?.timeline_rowid ?? 0, 50)
     const s = get()
     const current = s.rooms[roomID]
     if (!current) return
+    // The timeline this page continues was thrown away while it was in flight, so the page describes
+    // history below messages the room no longer has. Dropping it leaves the timeline empty and not
+    // paginating, which is what makes the view ask for the newest page again.
+    if (current.generation !== generation) {
+      if (current.paginating) patchRoom(roomID, { paginating: false })
+      return
+    }
     const tables = new EventTables(s)
     tables.add(resp.events)
     tables.add(resp.related_events)
