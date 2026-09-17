@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Cloud, Hash, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
+import { Cloud, Hash, LogOut, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
@@ -18,6 +18,7 @@ import {
   type PreferenceKey,
   type PreferenceValue,
 } from '@/store/preferences'
+import { requestLeaveRoom } from '@/store/roomActions'
 import { closeSettings, showToast, useUI } from '@/store/ui'
 import { pushDeviceID, useWebPush, type WebPushStatus } from '@/store/webpush'
 import { clearRoomCache } from '@/store/cache'
@@ -297,7 +298,31 @@ function PreferencesSection({ roomID }: { roomID: RoomID | null }) {
           {!entries.length && <p className="col-span-full py-10 text-center text-sm text-muted">No settings match</p>}
         </div>
       </div>
+      {roomID && <LeaveRoomFooter roomID={roomID} roomName={roomName ?? roomID} />}
     </>
+  )
+}
+
+/** Leaving is a room action rather than a preference, so it sits apart from the table. */
+function LeaveRoomFooter({ roomID, roomName }: { roomID: RoomID; roomName: string }) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-border px-4 py-2.5">
+      <span className="min-w-0 flex-1 text-xs text-muted">
+        Leaving removes <span className="font-medium text-fg">{roomName}</span> from your room list. If it isn't public, you'll need a new
+        invite to come back.
+      </span>
+      <button
+        type="button"
+        // Confirming happens in its own dialog, so this one gets out of the way first.
+        onClick={() => {
+          closeSettings()
+          requestAnimationFrame(() => requestLeaveRoom(roomID))
+        }}
+        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-danger/40 px-2.5 py-1 text-xs text-danger transition-colors hover:bg-danger hover:text-white"
+      >
+        <LogOut size={13} /> Leave room
+      </button>
+    </div>
   )
 }
 
