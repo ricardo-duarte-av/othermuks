@@ -39,4 +39,5 @@ the `Host` it sees matches the page's `Origin`. If your backend is a name-based 
 `origin_patterns` in gomuks' `config.yaml`, or the websocket will be answered with 403.
 
 Put your own TLS terminator in front of it. If that is nginx too, it must not buffer `/_gomuks/sse`
-either (`proxy_buffering off`, or let gomuks' `X-Accel-Buffering: no` through).
+either (`proxy_buffering off`, or let gomuks' `X-Accel-Buffering: no` through), and needs a
+`client_max_body_size` large enough for media uploads (nginx's default is 1 MB).

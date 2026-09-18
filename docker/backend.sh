@@ -56,5 +56,10 @@ location /_gomuks/ {
     proxy_cache off;
     proxy_read_timeout 1h;
     proxy_send_timeout 1h;
+
+    # Media uploads go through here: no size cap beyond what gomuks and the homeserver enforce, and
+    # the body is streamed to gomuks as it arrives rather than spooled to disk first.
+    client_max_body_size 0;
+    proxy_request_buffering off;
 }
 EOF
