@@ -134,64 +134,59 @@ const SectionHeader = memo(function SectionHeader({ spaceID }: { spaceID: RoomID
 })
 
 /**
- * Which sub-space header is pinned where. The list is virtualized, so its rows are positioned
+ * Which sub-space headers are pinned where. The list is virtualized, so its rows are positioned
  * absolutely and CSS sticky can't hold a header in place: the pinned copies are drawn over the
  * scroller instead, from the same measurements the virtualizer uses.
+ *
+ * Headers stack like nested sticky headers: the i-th one sticks at `i` header heights from the top
+ * once it scrolls up to there, and at `n - i` header heights from the bottom until it scrolls up
+ * past there. Pinned headers are therefore always a run from the start and a run from the end.
  */
-interface PinnedHeaders {
-  /** The section being scrolled through, pinned to the top. `shift` slides it out as the next one arrives. */
-  top?: { spaceID: RoomID; shift: number }
-  /** The next section, pinned to the bottom until its own header scrolls into view. */
-  bottom?: RoomID
+interface SectionPins {
+  /** Sub-space IDs in list order, with each header's scroll offset. */
+  sections: { spaceID: RoomID; offset: number }[]
+  /** How many sections from the start are pinned to the top. */
+  top: number
+  /** How many sections from the end are pinned to the bottom. */
+  bottom: number
 }
 
-function useSectionPins(rows: RoomListRow[], roomRowHeight: number, scrollRef: RefObject<HTMLDivElement | null>): PinnedHeaders {
+function useSectionPins(rows: RoomListRow[], roomRowHeight: number, scrollRef: RefObject<HTMLDivElement | null>): SectionPins {
   // Every row has a fixed height, so offsets follow from the row list alone.
-  const layout = useMemo(() => {
-    const offsets: number[] = []
-    const headers: number[] = []
+  const sections = useMemo(() => {
+    const out: SectionPins['sections'] = []
     let y = 0
-    rows.forEach((row, index) => {
-      offsets.push(y)
-      if (row.startsWith('h:')) headers.push(index)
-      y += row.startsWith('h:') ? SECTION_HEADER_HEIGHT : roomRowHeight
-    })
-    return { offsets, headers }
+    for (const row of rows) {
+      if (row.startsWith('h:')) {
+        out.push({ spaceID: row.slice(2), offset: y })
+        y += SECTION_HEADER_HEIGHT
+      } else {
+        y += roomRowHeight
+      }
+    }
+    return out
   }, [rows, roomRowHeight])
 
-  const [pins, setPins] = useState<PinnedHeaders>({})
+  const [counts, setCounts] = useState({ top: 0, bottom: 0 })
 
   useEffect(() => {
     const el = scrollRef.current
-    if (!el || !layout.headers.length) {
-      setPins(prev => (prev.top || prev.bottom ? {} : prev))
+    if (!el || !sections.length) {
+      setCounts(prev => (prev.top || prev.bottom ? { top: 0, bottom: 0 } : prev))
       return
     }
     let queued = false
     const update = () => {
       queued = false
-      const top = el.scrollTop
-      const bottom = top + el.clientHeight
-      let current = -1
-      let next = -1
-      for (const index of layout.headers) {
-        if (layout.offsets[index] <= top) current = index
-        else {
-          next = index
-          break
-        }
-      }
-      const nextOffset = next >= 0 ? layout.offsets[next] : Infinity
-      const pinned: PinnedHeaders = {}
-      if (current >= 0) {
-        // Once the next header is within a header's height, it pushes this one out of the way.
-        pinned.top = { spaceID: rows[current].slice(2), shift: Math.min(0, nextOffset - top - SECTION_HEADER_HEIGHT) }
-      }
-      // Only while the real header is still below the fold; they line up exactly as it arrives.
-      if (next >= 0 && nextOffset > bottom - SECTION_HEADER_HEIGHT) pinned.bottom = rows[next].slice(2)
-      setPins(prev =>
-        prev.top?.spaceID === pinned.top?.spaceID && prev.top?.shift === pinned.top?.shift && prev.bottom === pinned.bottom ? prev : pinned,
-      )
+      const scrollTop = el.scrollTop
+      const height = el.clientHeight
+      const n = sections.length
+      let top = 0
+      while (top < n && sections[top].offset - scrollTop < top * SECTION_HEADER_HEIGHT) top++
+      let bottom = 0
+      // A header already held at the top never also joins the bottom stack.
+      while (bottom < n - top && sections[n - 1 - bottom].offset - scrollTop > height - (bottom + 1) * SECTION_HEADER_HEIGHT) bottom++
+      setCounts(prev => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
     }
     const onScroll = () => {
       if (queued) return
@@ -206,23 +201,31 @@ function useSectionPins(rows: RoomListRow[], roomRowHeight: number, scrollRef: R
       el.removeEventListener('scroll', onScroll)
       observer.disconnect()
     }
-  }, [layout, rows, scrollRef])
+  }, [sections, scrollRef])
 
-  return pins
+  return { sections, ...counts }
 }
 
-/** A sub-space header held at the top or bottom of the list while its rooms scroll past. */
-function PinnedHeader({ spaceID, edge, shift }: { spaceID: RoomID; edge: 'top' | 'bottom'; shift?: number }) {
+/** A stack of sub-space headers held at the top or bottom of the list while their rooms are out of view. */
+function PinnedHeaders({ spaceIDs, edge, onJump }: { spaceIDs: RoomID[]; edge: 'top' | 'bottom'; onJump: (spaceID: RoomID) => void }) {
+  if (!spaceIDs.length) return null
   return (
     <div
       aria-hidden
-      className={cn(
-        'pinned-section-header pointer-events-none absolute inset-x-0 z-10 bg-[var(--sidebar-bg)] px-2 py-0.5',
-        edge === 'top' ? 'top-0' : 'bottom-0',
-      )}
-      style={{ height: SECTION_HEADER_HEIGHT, transform: shift ? `translateY(${shift}px)` : undefined }}
+      className={cn('pinned-section-headers absolute inset-x-0 z-10 bg-[var(--sidebar-bg)] px-2', edge === 'top' ? 'top-0' : 'bottom-0')}
     >
-      <SectionHeader spaceID={spaceID} />
+      {spaceIDs.map(spaceID => (
+        <button
+          key={spaceID}
+          type="button"
+          tabIndex={-1}
+          className="pinned-section-header block w-full py-0.5 text-left"
+          style={{ height: SECTION_HEADER_HEIGHT }}
+          onClick={() => onJump(spaceID)}
+        >
+          <SectionHeader spaceID={spaceID} />
+        </button>
+      ))}
     </div>
   )
 }
@@ -236,6 +239,11 @@ function RoomList({ spaceID }: { spaceID: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const roomRowHeight = compact ? COMPACT_ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT
   const pins = useSectionPins(rows, roomRowHeight, scrollRef)
+  // Scroll a section's header to where it sits in the top stack, so its rooms follow right below.
+  const jumpToSection = (target: RoomID) => {
+    const index = pins.sections.findIndex(section => section.spaceID === target)
+    if (index >= 0) scrollRef.current?.scrollTo({ top: pins.sections[index].offset - index * SECTION_HEADER_HEIGHT })
+  }
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -263,8 +271,12 @@ function RoomList({ spaceID }: { spaceID: string }) {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {pins.top && <PinnedHeader spaceID={pins.top.spaceID} edge="top" shift={pins.top.shift} />}
-      {pins.bottom && <PinnedHeader spaceID={pins.bottom} edge="bottom" />}
+      <PinnedHeaders spaceIDs={pins.sections.slice(0, pins.top).map(s => s.spaceID)} edge="top" onJump={jumpToSection} />
+      <PinnedHeaders
+        spaceIDs={pins.sections.slice(pins.sections.length - pins.bottom).map(s => s.spaceID)}
+        edge="bottom"
+        onJump={jumpToSection}
+      />
       <div ref={scrollRef} className="room-list min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Rooms">
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map(item => {
