@@ -7,7 +7,8 @@ import { addGomuksNotice, sendCommand, useChat } from './chat'
 import { argumentsForSource, AVATAR_COMMANDS, GOMUKS_SENDER, type ArgumentValue, type CommandSpec } from './commands'
 import type { TimelineEvent } from './events'
 import { jumpToEvent, openMatrixTarget } from './navigation'
-import { openRoom, openStateExplorer, showToast } from './ui'
+import { openStateExplorer, showToast } from './ui'
+import { openWhenJoined } from './userActions'
 
 export interface CommandContext {
   roomID: RoomID
@@ -41,21 +42,6 @@ function referenceTarget(reference: string): MatrixTarget | { kind: 'event'; eve
       return { kind: 'event', eventID: reference }
   }
   return null
-}
-
-/** Opens the room once it shows up in a sync, for rooms joined by command. */
-function openWhenJoined(roomID: RoomID) {
-  if (useChat.getState().rooms[roomID]) {
-    openRoom(roomID)
-    return
-  }
-  const unsubscribe = useChat.subscribe(s => {
-    if (!s.rooms[roomID]) return
-    unsubscribe()
-    clearTimeout(timeout)
-    openRoom(roomID)
-  })
-  const timeout = setTimeout(unsubscribe, 60_000)
 }
 
 /**

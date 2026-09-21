@@ -12,6 +12,9 @@ export interface PowerLevelsContent {
   events_default?: number
   state_default?: number
   redact?: number
+  invite?: number
+  kick?: number
+  ban?: number
 }
 
 /** Level needed to send an event type: its `events` entry, else state_default / events_default (like gomuks). */

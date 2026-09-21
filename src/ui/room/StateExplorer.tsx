@@ -10,9 +10,9 @@ import { closeStateExplorer, useUI } from '@/store/ui'
 import { CopyJSONButton, DialogHeader, JSONBlock, useJSONWrap, WrapSwitch } from './MessageDialogs'
 
 export function StateExplorer() {
-  const roomID = useUI(s => s.stateExplorer)
+  const target = useUI(s => s.stateExplorer)
   return (
-    <Dialog.Root open={!!roomID} onOpenChange={next => !next && closeStateExplorer()}>
+    <Dialog.Root open={!!target} onOpenChange={next => !next && closeStateExplorer()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" />
         <Dialog.Content
@@ -24,18 +24,20 @@ export function StateExplorer() {
           }}
           className="state-explorer fixed left-1/2 top-1/2 z-50 flex h-[min(720px,85vh)] w-[min(760px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface text-fg shadow-2xl outline-none"
         >
-          {roomID && <Explorer key={roomID} roomID={roomID} />}
+          {target && (
+            <Explorer key={`${target.roomID}|${target.type}|${target.stateKey}`} roomID={target.roomID} initialType={target.type} initialKey={target.stateKey} />
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   )
 }
 
-function Explorer({ roomID }: { roomID: RoomID }) {
+function Explorer({ roomID, initialType, initialKey }: { roomID: RoomID; initialType?: EventType; initialKey?: string }) {
   const roomName = useChat(s => s.rooms[roomID]?.meta.name)
   const state = useChat(s => s.rooms[roomID]?.state)
-  const [type, setType] = useState<EventType | null>(null)
-  const [stateKey, setStateKey] = useState<string | null>(null)
+  const [type, setType] = useState<EventType | null>(initialType ?? null)
+  const [stateKey, setStateKey] = useState<string | null>(initialType ? (initialKey ?? null) : null)
   const [filter, setFilter] = useState('')
   const [wrap, setWrap] = useJSONWrap()
 

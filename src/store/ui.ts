@@ -73,8 +73,8 @@ interface UIState {
   highlight: { rowid: EventRowID; nonce: number } | null
   lightbox: LightboxImage | null
   dialog: MessageDialog | null
-  /** Room whose state explorer (/devtools) is open. */
-  stateExplorer: RoomID | null
+  /** The room whose state explorer (/devtools) is open, optionally showing one state event. */
+  stateExplorer: { roomID: RoomID; type?: string; stateKey?: string } | null
   /** Settings dialog, optionally showing the room scopes for a room. */
   settings: { roomID: RoomID | null } | null
   /** Right panel widgets view: the room's widget list, or one widget (CALL_WIDGET_ID for Element Call). */
@@ -169,8 +169,8 @@ export function closeWidgets() {
   useUI.setState({ widgetView: null })
 }
 
-export function openStateExplorer(roomID: RoomID) {
-  useUI.setState({ stateExplorer: roomID })
+export function openStateExplorer(roomID: RoomID, event?: { type: string; stateKey: string }) {
+  useUI.setState({ stateExplorer: { roomID, ...event } })
 }
 
 export function closeStateExplorer() {

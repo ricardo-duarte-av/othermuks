@@ -24,6 +24,7 @@ import type {
   RPCEvent,
   SendMessageParams,
   ServerSearchParams,
+  UserID,
 } from './types'
 
 const PING_INTERVAL = 15_000
@@ -704,6 +705,31 @@ export class GomuksClient {
   /** Mutes or unmutes a room via its room push rule. */
   muteRoom(room_id: RoomID, muted: boolean) {
     return this.exec<boolean>('mute_room', { room_id, muted })
+  }
+
+  /** Invites, kicks, bans or unbans; msc4293_redact_events asks clients to hide a banned user's messages. */
+  setMembership(room_id: RoomID, user_id: UserID, action: 'invite' | 'kick' | 'ban' | 'unban', reason?: string, msc4293_redact_events?: boolean) {
+    return this.exec<void>('set_membership', { room_id, user_id, action, reason: reason || undefined, msc4293_redact_events })
+  }
+
+  /** gomuks marks a room created with is_direct and a single invite as a DM in m.direct. */
+  createRoom(request: Record<string, unknown>) {
+    return this.exec<{ room_id: RoomID }>('create_room', request)
+  }
+
+  /** Sets a field of the own global profile; leaving out the value deletes the field. */
+  setProfileField(field: string, value?: unknown) {
+    return this.exec<void>('set_profile_field', value === undefined ? { field } : { field, value })
+  }
+
+  /** Rooms both users are in, from the homeserver (MSC2666). */
+  getMutualRooms(user_id: UserID) {
+    return this.exec<{ joined: RoomID[]; count?: number; next_batch?: string }>('get_mutual_rooms', { user_id })
+  }
+
+  /** Starts tracking a user's devices if needed and returns them. */
+  trackUserDevices(user_id: UserID) {
+    return this.exec<{ devices?: unknown[] | null }>('track_user_devices', { user_id })
   }
 
   leaveRoom(room_id: RoomID, reason?: string) {

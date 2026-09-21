@@ -1,4 +1,4 @@
-import { Clock, Copy, Shield, UserCheck, UserX, X } from 'lucide-react'
+import { Braces, Clock, Copy, Pencil, Shield, UserCheck, UserX, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { mediaURL, userColorIndex } from '@/api/media'
 import type { RoomID, UserID } from '@/api/types'
@@ -7,10 +7,12 @@ import { fallbackDisplayName } from '@/store/events'
 import { setIgnored, useIsIgnored } from '@/store/ignored'
 import { useMember, useRoomPowerContext } from '@/store/hooks'
 import { ROLE_LABELS, roleForLevel, userPowerLevel } from '@/store/power'
-import { loadProfile, useProfiles } from '@/store/profiles'
-import { openLightbox, showToast, useUI } from '@/store/ui'
+import { loadProfile, pronounsOf, statusOf, timeZoneOf, useProfiles } from '@/store/profiles'
+import { openLightbox, openStateExplorer, showToast, useUI } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
 import { Avatar, IconButton, Spinner } from '@/ui/primitives'
+import { ProfileEditor } from './ProfileEditor'
+import { SharedRoomsSection, UserActions } from './UserActions'
 
 /** Profile keys rendered in dedicated places; anything else is listed under "Profile fields". */
 const KNOWN_FIELDS = new Set([
@@ -24,54 +26,78 @@ const KNOWN_FIELDS = new Set([
   'io.fsky.nyx.pronouns',
   'm.status',
   'org.msc.4426.status',
+  'org.matrix.msc4426.status',
   'm.tz',
   'us.cloke.msc4175.tz',
 ])
 
 const asString = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined)
 
-function pronounsOf(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.map(set => asString((set as { summary?: unknown } | null)?.summary)).filter((s): s is string => !!s)
+/** The plain text of an extensible text container (MSC1767 m.text), which many profile fields use. */
+function extensibleText(value: unknown): string | undefined {
+  const texts = (value as { 'm.text'?: unknown } | null)?.['m.text']
+  if (!Array.isArray(texts)) return undefined
+  const plain = texts.find(item => !item?.mimetype || item.mimetype === 'text/plain') ?? texts[0]
+  return asString(plain?.body)
 }
 
-function statusOf(profile: Record<string, unknown>) {
-  const raw = (profile['m.status'] ?? profile['org.msc.4426.status']) as { emoji?: unknown; text?: unknown } | null | undefined
-  if (!raw || typeof raw !== 'object') return undefined
-  const emoji = asString(raw.emoji)
-  const text = asString(raw.text)
-  return emoji || text ? { emoji, text } : undefined
-}
+type FieldValue = { text: string } | { json: string }
 
-/** Readable value for an arbitrary profile field, or undefined to hide it. */
-function describeField(value: unknown): string | undefined {
+/** Readable value for an arbitrary profile field: text where there's text, else its JSON, so nothing is hidden. */
+function describeField(value: unknown): FieldValue | undefined {
   if (value === null || value === undefined) return undefined
-  if (typeof value === 'string') return value.trim() || undefined
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'string') return value.trim() ? { text: value } : undefined
+  if (typeof value === 'number' || typeof value === 'boolean') return { text: String(value) }
+  const text = extensibleText(value)
+  if (text) return { text }
   if (Array.isArray(value)) {
-    const parts = value
-      .map(item => (typeof item === 'string' ? item : asString((item as { summary?: unknown } | null)?.summary)))
-      .filter(Boolean)
-    return parts.length ? parts.join(', ') : undefined
+    const parts = value.map(item => (typeof item === 'string' ? item : asString((item as { summary?: unknown } | null)?.summary) ?? extensibleText(item)))
+    if (parts.length && parts.every(Boolean)) return { text: parts.join(', ') }
+    if (!value.length) return undefined
+  } else if (typeof value === 'object' && !Object.keys(value).length) {
+    return undefined
   }
-  return undefined
+  return { json: JSON.stringify(value, null, 2) }
 }
 
-function localTime(timeZone: string) {
+function localTime(timeZone: string, now: Date) {
   try {
-    return new Intl.DateTimeFormat(undefined, { timeZone, hour: '2-digit', minute: '2-digit' }).format(new Date())
+    return new Intl.DateTimeFormat(undefined, { timeZone, hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(now)
   } catch {
     return undefined
   }
 }
 
+/** The current minute, updated as it turns, for clocks. */
+function useMinute(enabled: boolean) {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    if (!enabled) return
+    let interval: ReturnType<typeof setInterval> | undefined
+    const timeout = setTimeout(() => {
+      setNow(new Date())
+      interval = setInterval(() => setNow(new Date()), 60_000)
+    }, 60_000 - (Date.now() % 60_000))
+    return () => {
+      clearTimeout(timeout)
+      clearInterval(interval)
+    }
+  }, [enabled])
+  return now
+}
+
+/** Banners wider than this are shown whole; taller ones are cropped to it so the profile stays in view. */
+const TALLEST_BANNER_RATIO = 4 / 3
+
+/** The banner at the panel's full width, as tall as its proportions make it (placeholder 3:1 until it loads). */
 function Banner({ mxc, userID, name }: { mxc?: string; userID: UserID; name: string }) {
   const url = mediaURL(mxc)
   const [failed, setFailed] = useState(false)
+  const [ratio, setRatio] = useState<number | null>(null)
   if (!url || failed) {
     return (
       <div
-        className="profile-banner h-28 w-full"
+        className="profile-banner aspect-[3/1] max-h-40 w-full"
         style={{ background: `linear-gradient(135deg, var(--user-color-${userColorIndex(userID)}), var(--surface-2))` }}
       />
     )
@@ -81,22 +107,47 @@ function Banner({ mxc, userID, name }: { mxc?: string; userID: UserID; name: str
       type="button"
       title="View banner"
       onClick={() => openLightbox(url, `${name} banner`)}
-      className="profile-banner block h-28 w-full overflow-hidden bg-surface-2"
+      className="profile-banner block w-full overflow-hidden bg-surface-2"
+      style={{ aspectRatio: ratio ? Math.max(ratio, 1 / TALLEST_BANNER_RATIO) : 3 }}
     >
-      <img src={url} alt="" onError={() => setFailed(true)} className="size-full object-cover" />
+      <img
+        src={url}
+        alt=""
+        onLoad={e => {
+          const img = e.currentTarget
+          if (img.naturalWidth && img.naturalHeight) setRatio(img.naturalWidth / img.naturalHeight)
+        }}
+        onError={() => setFailed(true)}
+        className="size-full object-cover"
+      />
     </button>
   )
 }
 
+/** Sized by --profile-avatar-size, which grows with the panel's width. */
 function LargeAvatar({ mxc, userID, name }: { mxc?: string; userID: UserID; name: string }) {
   const url = mediaURL(mxc)
   const [failed, setFailed] = useState(false)
   if (!url || failed) {
-    return <Avatar id={userID} name={name} size={88} className="ring-4 ring-[var(--drawer-bg)]" />
+    const letter = Array.from(name.replace(/^[@#!+]/, ''))[0]?.toUpperCase() ?? '?'
+    return (
+      <div
+        aria-hidden
+        className="user-avatar grid size-[var(--profile-avatar-size)] place-items-center font-semibold ring-4 ring-[var(--drawer-bg)]"
+        style={{ background: `var(--user-color-${userColorIndex(userID)})`, color: 'var(--bg)', fontSize: 'calc(var(--profile-avatar-size) * 0.42)' }}
+      >
+        {letter}
+      </div>
+    )
   }
   return (
     <button type="button" title="View avatar" onClick={() => openLightbox(url, `${name} avatar`)} className="block rounded-full">
-      <img src={url} alt="" onError={() => setFailed(true)} className="user-avatar size-[88px] bg-surface-2 ring-4 ring-[var(--drawer-bg)]" />
+      <img
+        src={url}
+        alt=""
+        onError={() => setFailed(true)}
+        className="user-avatar size-[var(--profile-avatar-size)] bg-surface-2 object-cover ring-4 ring-[var(--drawer-bg)]"
+      />
     </button>
   )
 }
@@ -124,7 +175,7 @@ function IgnoreSection({ userID, name }: { userID: UserID; name: string }) {
 
   if (ignored) {
     return (
-      <section className="profile-ignore border-t border-border pt-4">
+      <div className="profile-ignore">
         <p className="mb-2 flex items-center gap-1.5 text-xs text-muted">
           <UserX size={13} className="shrink-0 text-danger" /> You're ignoring {name}. Their messages are hidden.
         </p>
@@ -136,12 +187,12 @@ function IgnoreSection({ userID, name }: { userID: UserID; name: string }) {
         >
           {busy ? <Spinner size={14} /> : <UserCheck size={15} />} Unignore
         </button>
-      </section>
+      </div>
     )
   }
 
   return (
-    <section className="profile-ignore border-t border-border pt-4">
+    <div className="profile-ignore">
       {confirming ? (
         <div className="rounded-lg border border-danger/40 bg-danger/5 p-3">
           <p className="text-sm font-medium">Ignore {name}?</p>
@@ -172,7 +223,7 @@ function IgnoreSection({ userID, name }: { userID: UserID; name: string }) {
           <UserX size={15} /> Ignore user
         </button>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -198,18 +249,21 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
   const avatar = roomAvatar ?? globalAvatar
   const globalAvatarURL = mediaURL(globalAvatar)
   const showGlobalAvatar = !!roomAvatar && !!globalAvatarURL && roomAvatar !== globalAvatar
-  const pronouns = pronounsOf(profile['io.fsky.nyx.pronouns'])
+  const pronouns = pronounsOf(profile).map(set => set.summary)
   const status = statusOf(profile)
-  const timeZone = asString(profile['m.tz'] ?? profile['us.cloke.msc4175.tz'])
-  const time = timeZone ? localTime(timeZone) : undefined
+  const timeZone = timeZoneOf(profile)
+  const now = useMinute(!!timeZone)
+  const time = timeZone ? localTime(timeZone, now) : undefined
   const level = userPowerLevel(powerLevels, createEvent, userID)
   const role = roleForLevel(level)
   const extras = Object.entries(profile)
     .filter(([key]) => !KNOWN_FIELDS.has(key))
     .map(([key, value]) => [key, describeField(value)] as const)
-    .filter((field): field is readonly [string, string] => !!field[1])
+    .filter((field): field is readonly [string, FieldValue] => !!field[1])
   const membership = member?.membership
   const isSelf = useChat(selectOwnUserID) === userID
+  const [showSource, setShowSource] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const copyUserID = () =>
     navigator.clipboard.writeText(userID).then(
@@ -225,10 +279,11 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
           <X size={16} />
         </IconButton>
       </div>
-      <div className="user-profile min-h-0 flex-1 overflow-y-auto pb-6">
-        <div className="relative">
-          <Banner mxc={asString(profile['chat.commet.profile_banner'])} userID={userID} name={name} />
-          <div className="absolute -bottom-11 left-4 flex items-end gap-2">
+      {/* The avatar grows with the panel: 88px at the narrowest, up to 176px. */}
+      <div className="user-profile @container min-h-0 flex-1 overflow-y-auto pb-6 [--profile-avatar-size:clamp(88px,34cqw,176px)]">
+        <Banner mxc={asString(profile['chat.commet.profile_banner'])} userID={userID} name={name} />
+        <div className="relative px-4">
+          <div className="-mt-[calc(var(--profile-avatar-size)/2)] flex items-end gap-2">
             <LargeAvatar key={avatar} mxc={avatar} userID={userID} name={name} />
             {showGlobalAvatar && (
               <button
@@ -244,7 +299,7 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 px-4 pt-14">
+        <div className="flex flex-col gap-4 px-4 pt-3">
           <div className="min-w-0">
             <h3 className="flex items-center gap-2 break-words text-lg font-semibold leading-tight">
               {name}
@@ -270,7 +325,9 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
             </button>
           </div>
 
-          {(pronouns.length > 0 || !!status?.text || !!time || level > 0) && (
+          {editing && entry?.profile ? (
+            <ProfileEditor userID={userID} profile={entry.profile} onDone={() => setEditing(false)} />
+          ) : (pronouns.length > 0 || !!status || !!time || level > 0 || isSelf) && (
             <div className="flex flex-wrap gap-1.5 text-xs">
               {level > 0 && (
                 <span
@@ -286,13 +343,22 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
                   {pronoun}
                 </span>
               ))}
-              {status?.text && (
+              {status && (
                 <span className="profile-status rounded-full bg-surface-2 px-2 py-0.5">{[status.emoji, status.text].filter(Boolean).join(' ')}</span>
               )}
               {time && (
-                <span className="profile-time flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5" title={timeZone}>
-                  <Clock size={11} /> {time} local time
+                <span className="profile-time flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5" title={`Local time in ${timeZone}`}>
+                  <Clock size={11} /> {time} · {timeZone?.replaceAll('_', ' ')}
                 </span>
+              )}
+              {isSelf && entry?.profile && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="profile-edit flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-muted transition-colors hover:border-accent/60 hover:text-fg"
+                >
+                  <Pencil size={11} /> {pronouns.length || status || timeZone ? 'Edit pronouns, status & time zone' : 'Add pronouns, status & time zone'}
+                </button>
               )}
             </div>
           )}
@@ -319,14 +385,50 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
                     <dt className="truncate font-mono text-[11px] text-muted" title={key}>
                       {key}
                     </dt>
-                    <dd className="break-words">{value}</dd>
+                    {'text' in value ? (
+                      <dd className="whitespace-pre-wrap break-words">{value.text}</dd>
+                    ) : (
+                      <dd>
+                        <pre className="overflow-x-auto rounded-md bg-[var(--code-bg)] p-2 font-mono text-[11px] leading-relaxed">{value.json}</pre>
+                      </dd>
+                    )}
                   </div>
                 ))}
               </dl>
             </section>
           )}
 
-          {!isSelf && <IgnoreSection userID={userID} name={name} />}
+          <UserActions roomID={roomID} userID={userID} name={name}>
+            {!isSelf && <IgnoreSection userID={userID} name={name} />}
+          </UserActions>
+
+          {!isSelf && <SharedRoomsSection userID={userID} />}
+
+          <section className="profile-sources flex flex-wrap gap-1.5 border-t border-border pt-4">
+            {entry?.profile && (
+              <button
+                type="button"
+                onClick={() => setShowSource(shown => !shown)}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
+              >
+                <Braces size={12} /> {showSource ? 'Hide' : 'View'} global profile
+              </button>
+            )}
+            {member && (
+              <button
+                type="button"
+                onClick={() => openStateExplorer(roomID, { type: 'm.room.member', stateKey: userID })}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
+              >
+                <Braces size={12} /> Member event
+              </button>
+            )}
+            {showSource && entry?.profile && (
+              <pre className="mt-1 w-full overflow-x-auto rounded-md bg-[var(--code-bg)] p-2 font-mono text-[11px] leading-relaxed">
+                {JSON.stringify(entry.profile, null, 2)}
+              </pre>
+            )}
+          </section>
 
           {entry?.loading && !entry.profile && (
             <div className="flex justify-center py-4 text-muted">
