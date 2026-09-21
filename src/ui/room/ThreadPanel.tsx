@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { EventID, EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { fetchEvent, loadThreadPage, useChat } from '@/store/chat'
-import { isMessageLike, type TimelineEvent } from '@/store/events'
+import { GROUP_WINDOW, isMessageLike, type TimelineEvent } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
@@ -12,7 +12,6 @@ import { IconButton, Spinner } from '@/ui/primitives'
 import { TimelineRow } from '@/ui/timeline/TimelineRow'
 import { Composer } from './Composer'
 
-const GROUP_WINDOW = 5 * 60_000
 const BOTTOM_THRESHOLD = 48
 const NO_ROWS: EventRowID[] = []
 

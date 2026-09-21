@@ -82,6 +82,9 @@ const STATE_TYPES = new Set([
 const eventIDList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [])
 const messageCount = (count: number) => (count === 1 ? 'a message' : `${count} messages`)
 
+/** Consecutive messages from one sender closer together than this share an avatar and name. */
+export const GROUP_WINDOW = 60_000
+
 export function isMessageLike(evt: TimelineEvent): boolean {
   return evt.type === 'm.room.message' || evt.type === 'm.sticker' || evt.type === 'm.room.encrypted'
 }

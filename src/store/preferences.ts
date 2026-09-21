@@ -98,6 +98,12 @@ export const preferences = {
   show_membership_events: bool('Timeline', 'Show membership events', 'Whether any membership events should be visible in the room timeline.', true),
   show_profile_changes: bool('Timeline', 'Show profile change events', 'Whether profile changes should be visible in the room timeline.', true),
   show_date_separators: bool('Timeline', 'Show date separators', 'Whether messages in different days should have a date separator between them in the room timeline.', true),
+  message_cards: bool(
+    'Timeline',
+    'Message cards',
+    'Show each message on a raised card instead of as plain text against the timeline. Emotes and state events stay flat.',
+    true,
+  ),
   small_replies: bool('Timeline', 'Compact reply style', 'Whether to use a Discord-like compact style for replies instead of the traditional style.', false),
 
   show_media_previews: bool(

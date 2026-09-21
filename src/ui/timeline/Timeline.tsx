@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
-import { hasNoRenderer, isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
+import { GROUP_WINDOW, hasNoRenderer, isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
@@ -14,7 +14,6 @@ import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
 import { ENTER_ANIMATION_WINDOW, TimelineRow } from './TimelineRow'
 
-const GROUP_WINDOW = 5 * 60_000
 const LOAD_THRESHOLD = 800
 const BOTTOM_THRESHOLD = 48
 const NO_ROWS: EventRowID[] = []

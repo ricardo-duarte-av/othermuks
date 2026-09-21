@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { RoomID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { useChat } from '@/store/chat'
-import { isMessageLike, isRenderable, type TimelineEvent } from '@/store/events'
+import { GROUP_WINDOW, isMessageLike, isRenderable, type TimelineEvent } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
@@ -12,7 +12,6 @@ import { useUI } from '@/store/ui'
 import { Spinner } from '@/ui/primitives'
 import { TimelineRow } from './TimelineRow'
 
-const GROUP_WINDOW = 5 * 60_000
 
 /**
  * Messages around a linked or replied-to message that isn't in the loaded timeline, shown over the
