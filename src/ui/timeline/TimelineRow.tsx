@@ -85,8 +85,6 @@ interface RowProps {
   roomID: RoomID
   rowid: EventRowID
   compact: boolean
-  /** The next row is a compact continuation of this one (same sender, within the group window). */
-  continued?: boolean
   newDay: boolean
   /** Set when the row is rendered inside a thread panel. */
   threadRoot?: EventID
@@ -96,7 +94,7 @@ interface RowProps {
   arrivedAt?: number
 }
 
-export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, continued, newDay, threadRoot, readers, arrivedAt }: RowProps) {
+export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot, readers, arrivedAt }: RowProps) {
   const evt = useChat(s => s.events[rowid])
   const ownUserID = useChat(selectOwnUserID)
   // Decided once on mount: flipping it later (the window passing on a re-render) would drop the animation
@@ -119,7 +117,7 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, c
       ) : hasNoRenderer(evt) ? (
         <HiddenRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       ) : isMessageLike(evt) ? (
-        <MessageRow roomID={roomID} evt={evt} compact={compact} continued={continued} own={own} threadRoot={threadRoot} readers={readers} />
+        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} threadRoot={threadRoot} readers={readers} />
       ) : (
         <StateRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       )}
@@ -448,13 +446,12 @@ interface MessageRowProps {
   roomID: RoomID
   evt: TimelineEvent
   compact: boolean
-  continued?: boolean
   own: boolean
   threadRoot?: EventID
   readers?: UserID[]
 }
 
-function MessageRow({ roomID, evt, compact, continued, own, threadRoot, readers }: MessageRowProps) {
+function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageRowProps) {
   const codeWrap = usePreference('code_block_line_wrap', roomID)
   const inlineImages = usePreference('show_inline_images', roomID)
   const maxImageWidth = usePreference('max_image_width', roomID)
@@ -480,7 +477,6 @@ function MessageRow({ roomID, evt, compact, continued, own, threadRoot, readers 
       data-rowid={evt.rowid}
       data-own={own || undefined}
       data-card={card || undefined}
-      data-continued={continued || undefined}
       data-pending={pending || undefined}
       data-failed={failed || undefined}
       data-redacted={evt.redacted_by ? true : undefined}
@@ -1073,7 +1069,7 @@ function ThreadSummary({ eventID }: { eventID: EventID }) {
     <button
       type="button"
       onClick={() => openThread(eventID)}
-      className="thread-summary mt-1 flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-hover"
+      className="thread-summary relative mt-1 flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-hover"
     >
       <MessagesSquare size={13} />
       {count} {count === 1 ? 'reply' : 'replies'}
@@ -1104,8 +1100,9 @@ function Reactions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
     }
   }
 
+  // Positioned, like the message card before it, so the chips paint above the card's glow.
   return (
-    <div className="reactions mt-1 flex flex-wrap gap-1">
+    <div className="reactions relative mt-1 flex flex-wrap gap-1">
       {entries.map(([key, count]) => (
         <ReactionChip
           key={key}
