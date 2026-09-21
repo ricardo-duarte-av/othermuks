@@ -21,13 +21,22 @@
   --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
   --color-success: var(--success);
-  --font-sans: var(--font-ui);
-  --font-mono: var(--font-code);
+  --font-sans: var(--font-ui), var(--font-fallback);
+  --font-mono: var(--font-code), var(--font-fallback);
 }
 
 :root {
   --font-ui: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-code: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+  /*
+   * Fonts for symbols that UI fonts lack, e.g. the "𝓋𝒶𝓃𝒾𝓁𝓁𝒶" letters people put in display names.
+   * Naming them matters: Chrome otherwise picks a fallback font by the script of the text run, and one
+   * hieroglyph or emoji in a name steers the whole run to a font without these letters (boxes instead).
+   * Kept separate from --font-ui so a custom UI font still gets them. Emoji fonts come first so symbol
+   * fonts with plain black glyphs for some emoji don't win over the color ones.
+   */
+  --font-fallback: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Noto Sans Math", "STIX Two Math",
+    "Cambria Math", "DejaVu Math TeX Gyre", "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols";
   --radius: 0.625rem;
 }
 
@@ -234,7 +243,7 @@
   body {
     background: var(--bg);
     color: var(--fg);
-    font-family: var(--font-ui);
+    font-family: var(--font-ui), var(--font-fallback);
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
@@ -343,7 +352,7 @@
   }
 
   .message-body code {
-    font-family: var(--font-code);
+    font-family: var(--font-code), var(--font-fallback);
     font-size: 0.875em;
     background: var(--code-bg);
     border-radius: 0.3em;
