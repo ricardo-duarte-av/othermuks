@@ -56,7 +56,7 @@ export function MessageDialogs() {
   )
 }
 
-function DialogHeader({ title, actions }: { title: string; actions?: ReactNode }) {
+export function DialogHeader({ title, actions }: { title: string; actions?: ReactNode }) {
   return (
     <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
       <Dialog.Title className="text-sm font-semibold">{title}</Dialog.Title>
@@ -70,7 +70,7 @@ function DialogHeader({ title, actions }: { title: string; actions?: ReactNode }
   )
 }
 
-function CopyJSONButton({ value }: { value: unknown }) {
+export function CopyJSONButton({ value }: { value: unknown }) {
   const copy = () =>
     navigator.clipboard.writeText(JSON.stringify(value, null, 2)).then(
       () => showToast('Copied to clipboard'),
@@ -86,7 +86,7 @@ function CopyJSONButton({ value }: { value: unknown }) {
 const WRAP_STORAGE_KEY = 'othermuks-json-wrap'
 
 /** Whether JSON views wrap long lines; remembered on this device. */
-function useJSONWrap(): [boolean, (wrap: boolean) => void] {
+export function useJSONWrap(): [boolean, (wrap: boolean) => void] {
   const [wrap, setWrap] = useState(() => {
     try {
       return localStorage.getItem(WRAP_STORAGE_KEY) === '1'
@@ -105,7 +105,7 @@ function useJSONWrap(): [boolean, (wrap: boolean) => void] {
   return [wrap, update]
 }
 
-function WrapSwitch({ wrap, onChange }: { wrap: boolean; onChange: (wrap: boolean) => void }) {
+export function WrapSwitch({ wrap, onChange }: { wrap: boolean; onChange: (wrap: boolean) => void }) {
   return (
     <button
       type="button"
@@ -127,7 +127,7 @@ function WrapSwitch({ wrap, onChange }: { wrap: boolean; onChange: (wrap: boolea
   )
 }
 
-function JSONBlock({ value, wrap }: { value: unknown; wrap: boolean }) {
+export function JSONBlock({ value, wrap }: { value: unknown; wrap: boolean }) {
   const text = useMemo(() => JSON.stringify(value, null, 2), [value])
   return (
     <pre

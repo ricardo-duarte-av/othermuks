@@ -137,6 +137,8 @@ export interface MessageEventContent {
   'm.mentions'?: Mentions
   'm.relates_to'?: RelatesTo
   'm.new_content'?: MessageEventContent
+  /** MSC4391 structured bot command. */
+  'org.matrix.msc4391.command'?: { command: string; arguments?: Record<string, unknown> }
 }
 
 export interface MemberEventContent {

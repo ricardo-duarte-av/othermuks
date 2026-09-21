@@ -28,6 +28,7 @@ import type {
   UserID,
 } from '@/api/types'
 import { markOnce } from '@/lib/perf'
+import { COMMAND_CONTENT_KEY, GOMUKS_SENDER } from './commands'
 import { isPendingEvent, normalizeEvent, threadRootOf, type TimelineEvent } from './events'
 import { getPreference } from './preferences'
 
@@ -625,6 +626,60 @@ export async function sendMedia(
     url_previews: [],
   })
   if (evt) addLocalEcho(roomID, evt, true)
+}
+
+/**
+ * Sends a structured (MSC4391) command. Only its owner is mentioned: gomuks runs it itself when that's
+ * the fake @gomuks sender, answering with a local notice, a sent event, or nothing at all.
+ */
+export async function sendCommand(
+  roomID: RoomID,
+  body: string,
+  invocation: { command: string; arguments: Record<string, unknown> },
+  source: UserID,
+  { replyTo, threadRoot, media }: Omit<SendOptions, 'edit'> & { media?: MessageEventContent } = {},
+) {
+  let relates_to: RelatesTo | undefined
+  if (threadRoot) relates_to = threadRelation(threadRoot, replyTo)
+  else if (replyTo) relates_to = { 'm.in_reply_to': { event_id: replyTo.event_id } }
+  const evt = await client.sendMessage({
+    room_id: roomID,
+    text: '',
+    base_content: { ...(media ?? { msgtype: 'm.text' }), body, [COMMAND_CONTENT_KEY]: invocation },
+    relates_to,
+    mentions: { user_ids: [source], room: false },
+    url_previews: [],
+  })
+  if (evt) addLocalEcho(roomID, evt, true)
+}
+
+/** Shows a message from "gomuks" at the bottom of the room, like the replies gomuks gives to commands. */
+export function addGomuksNotice(roomID: RoomID, html: string) {
+  addLocalEcho(
+    roomID,
+    {
+      // A zero rowid gets a synthetic one.
+      rowid: 0,
+      timeline_rowid: 0,
+      room_id: roomID,
+      event_id: `$gomuks-internal-fe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sender: GOMUKS_SENDER,
+      type: 'm.room.message',
+      timestamp: Date.now(),
+      content: { msgtype: 'm.text' },
+      unsigned: {},
+      local_content: { sanitized_html: html },
+      unread_type: 0,
+    },
+    true,
+  )
+}
+
+/** Removes a gomuks notice (a command reply) from the room. */
+export function dismissGomuksNotice(roomID: RoomID, rowid: EventRowID) {
+  const room = get().rooms[roomID]
+  if (!room?.pending.includes(rowid)) return
+  patchRoom(roomID, { pending: room.pending.filter(id => id !== rowid) })
 }
 
 /** Uploads and sends each file. Only the first carries the caption, so it isn't repeated under every one. */

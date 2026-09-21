@@ -10,6 +10,7 @@ import { Lightbox } from '@/ui/Lightbox'
 import { CommandPalette } from '@/ui/palette/CommandPalette'
 import { Kbd, Spinner } from '@/ui/primitives'
 import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
+import { StateExplorer } from '@/ui/room/StateExplorer'
 import { RightPanel, type RightPanelKind } from '@/ui/room/RightPanel'
 import { RoomView } from '@/ui/room/RoomView'
 import { installMatrixLinkHandler } from '@/ui/matrixLinks'
@@ -40,7 +41,7 @@ function useGlobalShortcuts() {
       const mod = e.ctrlKey || e.metaKey
       const ui = useUI.getState()
       // Modal overlays handle their own keys (Esc closes them, R rotates in the lightbox).
-      const overlayOpen = ui.paletteOpen || !!ui.dialog || !!ui.lightbox || ui.appearanceOpen || !!ui.settings
+      const overlayOpen = ui.paletteOpen || !!ui.dialog || !!ui.stateExplorer || !!ui.lightbox || ui.appearanceOpen || !!ui.settings
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         useUI.setState({ paletteOpen: !ui.paletteOpen })
@@ -167,6 +168,7 @@ export function Shell() {
       </div>
       <CommandPalette />
       <MessageDialogs />
+      <StateExplorer />
       <AppearanceDialog />
       <SettingsDialog />
       <PermissionDialog />

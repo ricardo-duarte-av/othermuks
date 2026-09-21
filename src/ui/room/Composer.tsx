@@ -1,11 +1,13 @@
 import { File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { client } from '@/api/client'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatBytes } from '@/lib/format'
 import { attachmentKey, clearAttachments, removeAttachment, stageAttachments, useStagedFiles } from '@/store/attachments'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
+import { runCommand } from '@/store/commandRunner'
+import { AVATAR_COMMANDS, resolveInput, suggestCommands, type CommandSuggestion, type ResolvedInput } from '@/store/commands'
 import { customEmojiMarkdown, recordEmojiUse, sendSticker, type CustomEmoji } from '@/store/emoji'
 import { displayContent, hasNoRenderer, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
 import { useDisplayName } from '@/store/hooks'
@@ -18,6 +20,7 @@ import { withTone, type EmojiItem, type PickerSelection } from '@/ui/emoji/items
 import { readSkinTone } from '@/ui/emoji/unicode'
 import { IconButton, Spinner } from '@/ui/primitives'
 import { ReplyPreview } from '@/ui/timeline/TimelineRow'
+import { CommandHint, CommandSuggestions, useRoomCommands } from './CommandSuggestions'
 import { mentionMarkdown, MentionSuggestions, useMemberSuggestions, type MemberSuggestion } from './MentionSuggestions'
 
 /** A staged file: images and videos show themselves, anything else shows its name. */
@@ -72,6 +75,33 @@ const SUGGEST_PATTERN = /(?:^|[\s(])(:[a-zA-Z0-9_+-]{2,})$/
 const MENTION_PATTERN = /(?:^|[\s(])(@[^\s@()[\]]{0,48})$/
 const drafts = new Map<string, string>()
 
+const NOT_A_COMMAND: ResolvedInput = { kind: 'none' }
+
+/** Where a command's arguments start in the text, or null while its name is still being typed. */
+function argsStart(text: string, resolved: ResolvedInput): number | null {
+  if (resolved.kind !== 'command' && resolved.kind !== 'format') return null
+  const name = resolved.kind === 'command' ? resolved.name : resolved.spec.command
+  let at = 1 + name.length
+  if (text[at] === '@') at += resolved.spec.source.length
+  return /\s/.test(text[at] ?? '') ? at + 1 : null
+}
+
+/** Why a typed command can't be sent as it is, or null if it can. */
+function commandProblem(resolved: ResolvedInput, editing: boolean): string | null {
+  switch (resolved.kind) {
+    case 'unknown':
+      return `Unknown command /${resolved.name}. Start with // to send a message beginning with a slash.`
+    case 'ambiguous':
+      return `Several bots have /${resolved.name}: pick one with ${resolved.sources.map(source => `/${resolved.name}${source}`).join(' or ')}.`
+    case 'command':
+      if (editing) return "Commands can't be used while editing a message."
+      if (resolved.missing.length) return `/${resolved.name} needs ${resolved.missing.map(key => `{${key}}`).join(', ')}.`
+      return null
+    default:
+      return null
+  }
+}
+
 interface ComposerProps {
   roomID: RoomID
   /** Send into this thread instead of the main timeline. */
@@ -108,6 +138,22 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const typingSentAt = useRef(0)
 
+  // Slash commands: suggestions while the name is typed, then a hint for its arguments.
+  const commandMode = text.startsWith('/') && !text.startsWith('//')
+  const commands = useRoomCommands(roomID, commandMode)
+  const resolved = useMemo(() => (commandMode ? resolveInput(text.trim(), commands, roomID) : NOT_A_COMMAND), [commandMode, text, commands, roomID])
+  // Once whitespace follows a complete command name, its arguments are being typed.
+  const commandArgsAt = argsStart(text, resolved)
+  const typingArgs = commandArgsAt !== null
+  const [commandDismissed, setCommandDismissed] = useState<string | null>(null)
+  const commandSuggestions = useMemo(
+    () => (commandMode && !typingArgs && !text.includes('\n') && commandDismissed !== text ? suggestCommands(text.slice(1), commands) : []),
+    [commandMode, typingArgs, text, commands, commandDismissed],
+  )
+  const [commandIndex, setCommandIndex] = useState(0)
+  const [focused, setFocused] = useState(false)
+  const commandSuggesting = focused && commandSuggestions.length > 0 && !suggest
+
   const suggestions = useEmojiSuggestions(suggest?.kind === 'emoji' ? suggest.query : null, roomID)
   const memberSuggestions = useMemberSuggestions(suggest?.kind === 'mention' ? suggest.query : null, roomID)
   const suggestionCount = suggest?.kind === 'mention' ? memberSuggestions.length : suggestions.length
@@ -120,6 +166,10 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   useEffect(() => {
     setSuggestIndex(0)
   }, [suggest?.query, suggest?.kind])
+
+  useEffect(() => {
+    setCommandIndex(0)
+  }, [text])
 
   // Load the message source into the input when editing starts.
   useEffect(() => {
@@ -157,6 +207,16 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     const body = text.trim()
     // Attachments can go out with no caption at all; text alone still needs something to send.
     if (!body && !attachments.length) return
+    const command = body.startsWith('/') && !body.startsWith('//') ? resolveInput(body, commands, roomID) : NOT_A_COMMAND
+    const problem = commandProblem(command, !!editing)
+    if (problem) {
+      setError(problem)
+      return
+    }
+    if (command.kind === 'command') {
+      await submitCommand(body, command)
+      return
+    }
     const opts = { replyTo, edit: editing, threadRoot }
     setText('')
     setError(null)
@@ -189,6 +249,49 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
       setError(err instanceof Error ? err.message : String(err))
       setText(body)
     }
+  }
+
+  async function submitCommand(body: string, command: Extract<ResolvedInput, { kind: 'command' }>) {
+    const needsImage = AVATAR_COMMANDS.has(command.spec.command)
+    const image = attachments.find(file => file.type.startsWith('image/'))
+    if (needsImage && !image) {
+      setError(`Attach an image to use /${command.name}.`)
+      return
+    }
+    if (!needsImage && attachments.length) {
+      setError("Files can't be sent with a command. Remove them or send them separately.")
+      return
+    }
+    setText('')
+    setError(null)
+    setSuggest(null)
+    if (replyTo || editing) useUI.setState({ replyTo: null, editing: null })
+    stopTyping()
+    if (!threadRoot && useEventContext.getState().view?.roomID === roomID) closeEventContext()
+    const files = attachments
+    if (files.length) {
+      clearAttachments(attachKey)
+      setUploading(n => n + 1)
+    }
+    try {
+      await runCommand(command.spec, command.args, { roomID, body, replyTo, threadRoot, attachment: needsImage ? image : undefined })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setText(body)
+      if (files.length) stageAttachments(attachKey, files)
+    } finally {
+      if (files.length) setUploading(n => n - 1)
+    }
+  }
+
+  /** Puts the picked command in the input, ready for its arguments; picking what's already typed sends it. */
+  function pickCommand(item: CommandSuggestion) {
+    const insertion = `/${item.name}${item.needsSource ? item.spec.source : ''}`
+    if (text.trim() === insertion && !item.spec.parameters.length) {
+      void submit()
+      return
+    }
+    replaceRange(0, text.length, `${insertion} `)
   }
 
   function attach(files: File[]) {
@@ -307,6 +410,24 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (commandSuggesting) {
+      const count = commandSuggestions.length
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setCommandIndex(i => (i + (e.key === 'ArrowDown' ? 1 : -1) + count) % count)
+        return
+      }
+      if ((e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) || e.key === 'Tab') {
+        e.preventDefault()
+        pickCommand(commandSuggestions[Math.min(commandIndex, count - 1)])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setCommandDismissed(text)
+        return
+      }
+    }
     if (suggesting && suggest) {
       const count = suggestionCount
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -382,6 +503,23 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           onPick={pickMention}
         />
       )}
+      {commandSuggesting && (
+        <CommandSuggestions
+          roomID={roomID}
+          items={commandSuggestions}
+          active={Math.min(commandIndex, commandSuggestions.length - 1)}
+          onHover={setCommandIndex}
+          onPick={pickCommand}
+        />
+      )}
+      {focused && !suggesting && (resolved.kind === 'command' || resolved.kind === 'format') && commandArgsAt !== null && (
+        <CommandHint
+          roomID={roomID}
+          spec={resolved.spec}
+          name={resolved.kind === 'command' ? resolved.name : resolved.spec.command}
+          argsText={text.slice(commandArgsAt)}
+        />
+      )}
       {context && (
         <div className="composer-context rounded-t-xl border border-b-0 border-border bg-surface-2/60 px-3 py-1.5">
           <div className="flex items-center gap-2 text-xs text-muted">
@@ -433,13 +571,17 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           placeholder={attachments.length ? 'Add a caption…' : threadRoot ? 'Reply in thread…' : 'Send a message…'}
           aria-label={threadRoot ? 'Reply in thread' : roomName ? `Message ${roomName}` : 'Message'}
           aria-autocomplete="list"
-          aria-expanded={suggesting}
+          aria-expanded={suggesting || commandSuggesting}
           onChange={e => {
             onChange(e.target.value)
             updateSuggest(e.target.value, e.target.selectionStart)
           }}
           onSelect={e => updateSuggest(e.currentTarget.value, e.currentTarget.selectionStart)}
-          onBlur={() => setSuggest(null)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false)
+            setSuggest(null)
+          }}
           onKeyDown={onKeyDown}
           onPaste={e => {
             const files = Array.from(e.clipboardData.files)
