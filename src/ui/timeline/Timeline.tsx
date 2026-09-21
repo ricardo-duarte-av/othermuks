@@ -109,7 +109,8 @@ function useReceiptLayout(roomID: RoomID, filter: TimelineFilter, ignored: Reado
     for (const receipt of receipts) {
       if (receipt.user_id === own) continue
       const row = displayRow.get(receipt.event_rowid)
-      if (row === undefined) continue
+      // Someone having read their own message says nothing.
+      if (row === undefined || s.events[row]?.sender === receipt.user_id) continue
       let readers = rows.get(row)
       if (!readers) rows.set(row, (readers = []))
       readers.push({ userID: receipt.user_id, timestamp: receipt.timestamp })

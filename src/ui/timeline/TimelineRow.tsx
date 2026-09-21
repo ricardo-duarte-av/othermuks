@@ -483,7 +483,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
       data-highlight={highlighted || undefined}
       data-code-wrap={codeWrap || undefined}
       data-hide-inline-images={!inlineImages || undefined}
-      style={{ '--max-image-width': `${maxImageWidth}px` } as CSSProperties}
+      style={{ '--max-image-width': `${maxImageWidth}px`, '--sender-color': userColor(evt.sender) } as CSSProperties}
     >
       <div className="flex w-10 shrink-0 justify-end">
         {compact ? (
@@ -502,7 +502,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
       <div className="min-w-0 flex-1">
         {/* Receipts sit beside the message, at its bottom, so they don't add a line of their own. */}
         <div className="flex items-end gap-2">
-          <div className={cn('chat-bubble', pending && 'opacity-60')}>
+          <div className={cn('chat-bubble relative', pending && 'opacity-60')}>
             {!compact && (
               <div className="flex items-baseline gap-2 leading-tight">
                 <ProfileButton
@@ -532,6 +532,9 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
               </button>
             )}
             {failed && <SendFailure evt={evt} />}
+            {!isPendingEvent(evt) && (
+              <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} anchored />
+            )}
           </div>
           {readers && readers.length > 0 && (
             <div className="receipts-slot flex shrink-0 pb-0.5">
@@ -542,7 +545,6 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
         {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
         {!threadRoot && !isPendingEvent(evt) && <ThreadSummary eventID={evt.event_id} />}
       </div>
-      {!isPendingEvent(evt) && <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} />}
     </div>
   )
 }
@@ -896,6 +898,7 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
             'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
             !isSticker && 'border border-border bg-surface',
           )}
+          data-sticker={isSticker || undefined}
           style={{ ...(boxStyle ?? { maxWidth }), ...placeholderStyle(placeholder) }}
         >
           <FadeInImage key={src} src={src} alt={content.body} placeholder={placeholder} />
@@ -1155,7 +1158,7 @@ function ReactionChip({ roomID, evt, reactionKey, count, reactors, own, onToggle
           className="reaction-chip flex h-6 items-center gap-1 rounded-full px-2 text-xs transition hover:brightness-110"
         >
           {custom ? <img src={mediaURL(reactionKey)} alt={label} className="size-4 object-contain" /> : <span>{reactionKey}</span>}
-          <span className="tabular-nums text-muted">{count}</span>
+          {count > 1 && <span className="tabular-nums text-muted">{count}</span>}
         </button>
       </Tooltip.Trigger>
       <Tooltip.Portal>
@@ -1226,9 +1229,11 @@ interface MessageActionsProps {
   own: boolean
   threadRoot?: EventID
   hasEdits: boolean
+  /** Sit at the end of the enclosing positioned box (a message card) instead of the row's right edge. */
+  anchored?: boolean
 }
 
-function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActionsProps) {
+function MessageActions({ roomID, evt, own, threadRoot, hasEdits, anchored }: MessageActionsProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const allowedToPin = useCanPin(roomID)
@@ -1255,7 +1260,7 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
     void copyToClipboard(content.body ?? '', 'Message copied')
   }
 
-  return (
+  const toolbar = (
     <div
       role="toolbar"
       aria-label="Message actions"
@@ -1263,7 +1268,8 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
         // Sits above the row, overlapping its top edge by a few pixels: it doesn't cover the row's content
         // (e.g. read receipts on one-line messages), and moving the mouse straight up enters the toolbar
         // without crossing the message above, which would take over the hover.
-        'message-actions absolute bottom-[calc(100%-6px)] right-4 z-10 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-md',
+        'message-actions items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-md',
+        anchored ? 'pointer-events-auto' : 'absolute bottom-[calc(100%-6px)] right-4 z-10',
         pickerOpen || menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex',
       )}
     >
@@ -1348,5 +1354,10 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits }: MessageActio
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     </div>
+  )
+  if (!anchored) return toolbar
+  // Ends where the card ends, but grows to the right of a card narrower than the toolbar.
+  return (
+    <div className="pointer-events-none absolute bottom-[calc(100%-6px)] left-0 z-10 flex w-max min-w-full justify-end">{toolbar}</div>
   )
 }
