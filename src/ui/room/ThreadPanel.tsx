@@ -148,12 +148,13 @@ export function ThreadView({ roomID, rootID }: { roomID: RoomID; rootID: EventID
             <Spinner />
           </div>
         )}
-        {items.map(item => (
+        {items.map((item, i) => (
           <TimelineRow
             key={item.rowid}
             roomID={roomID}
             rowid={item.rowid}
             compact={item.compact}
+            continued={items[i + 1]?.compact}
             newDay={item.newDay}
             threadRoot={rootID}
           />

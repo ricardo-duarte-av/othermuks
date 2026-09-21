@@ -85,6 +85,8 @@ interface RowProps {
   roomID: RoomID
   rowid: EventRowID
   compact: boolean
+  /** The next row is a compact continuation of this one (same sender, within the group window). */
+  continued?: boolean
   newDay: boolean
   /** Set when the row is rendered inside a thread panel. */
   threadRoot?: EventID
@@ -94,7 +96,7 @@ interface RowProps {
   arrivedAt?: number
 }
 
-export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, newDay, threadRoot, readers, arrivedAt }: RowProps) {
+export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, continued, newDay, threadRoot, readers, arrivedAt }: RowProps) {
   const evt = useChat(s => s.events[rowid])
   const ownUserID = useChat(selectOwnUserID)
   // Decided once on mount: flipping it later (the window passing on a re-render) would drop the animation
@@ -117,7 +119,7 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
       ) : hasNoRenderer(evt) ? (
         <HiddenRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       ) : isMessageLike(evt) ? (
-        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} threadRoot={threadRoot} readers={readers} />
+        <MessageRow roomID={roomID} evt={evt} compact={compact} continued={continued} own={own} threadRoot={threadRoot} readers={readers} />
       ) : (
         <StateRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       )}
@@ -446,12 +448,13 @@ interface MessageRowProps {
   roomID: RoomID
   evt: TimelineEvent
   compact: boolean
+  continued?: boolean
   own: boolean
   threadRoot?: EventID
   readers?: UserID[]
 }
 
-function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageRowProps) {
+function MessageRow({ roomID, evt, compact, continued, own, threadRoot, readers }: MessageRowProps) {
   const codeWrap = usePreference('code_block_line_wrap', roomID)
   const inlineImages = usePreference('show_inline_images', roomID)
   const maxImageWidth = usePreference('max_image_width', roomID)
@@ -477,6 +480,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
       data-rowid={evt.rowid}
       data-own={own || undefined}
       data-card={card || undefined}
+      data-continued={continued || undefined}
       data-pending={pending || undefined}
       data-failed={failed || undefined}
       data-redacted={evt.redacted_by ? true : undefined}
@@ -502,7 +506,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
       <div className="min-w-0 flex-1">
         {/* Receipts sit beside the message, at its bottom, so they don't add a line of their own. */}
         <div className="flex items-end gap-2">
-          <div className={cn('chat-bubble relative', pending && 'opacity-60')}>
+          <div className={cn('chat-bubble relative', card && 'group/card', pending && 'opacity-60')}>
             {!compact && (
               <div className="flex items-baseline gap-2 leading-tight">
                 <ProfileButton
@@ -533,7 +537,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
             )}
             {failed && <SendFailure evt={evt} />}
             {!isPendingEvent(evt) && (
-              <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} anchored />
+              <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={!!lastEdit} anchored card={card} />
             )}
           </div>
           {readers && readers.length > 0 && (
@@ -1231,9 +1235,11 @@ interface MessageActionsProps {
   hasEdits: boolean
   /** Sit at the end of the enclosing positioned box (a message card) instead of the row's right edge. */
   anchored?: boolean
+  /** Show on hovering the message card (group/card) rather than anywhere on the row. */
+  card?: boolean
 }
 
-function MessageActions({ roomID, evt, own, threadRoot, hasEdits, anchored }: MessageActionsProps) {
+function MessageActions({ roomID, evt, own, threadRoot, hasEdits, anchored, card }: MessageActionsProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const allowedToPin = useCanPin(roomID)
@@ -1270,7 +1276,11 @@ function MessageActions({ roomID, evt, own, threadRoot, hasEdits, anchored }: Me
         // without crossing the message above, which would take over the hover.
         'message-actions items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-md',
         anchored ? 'pointer-events-auto' : 'absolute bottom-[calc(100%-6px)] right-4 z-10',
-        pickerOpen || menuOpen ? 'flex' : 'hidden group-focus-within:flex group-hover:flex',
+        pickerOpen || menuOpen
+          ? 'flex'
+          : card
+            ? 'hidden group-focus-within/card:flex group-hover/card:flex'
+            : 'hidden group-focus-within:flex group-hover:flex',
       )}
     >
       {QUICK_REACTIONS.map(key => (

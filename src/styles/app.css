@@ -352,11 +352,21 @@
     flex: 1 1 0%;
   }
 
-  /* Declared on the row, not :root, so the glow picks up this message's --sender-color. */
+  /*
+   * Declared on the row, not :root, so the glow picks up this message's --sender-color. The glow falls
+   * to the bottom right, as if lit from the top left; the negative spread keeps it off the other edges.
+   */
   .chat-message[data-card] {
     --card-glow: oklch(from var(--sender-color, var(--accent)) l c h / var(--card-glow-strength));
+    --card-glow-shadow: 6px 7px 16px -5px var(--card-glow);
     --card-shadow: inset 0 1px 0 var(--card-highlight), 0 0 0 1px var(--card-edge), 0 1px 2px var(--card-shadow-color),
-      0 3px 10px -2px var(--card-shadow-color), 0 0 20px -2px var(--card-glow);
+      0 3px 10px -2px var(--card-shadow-color), var(--card-glow-shadow);
+  }
+
+  /* Inside a run of grouped messages only the right edge glows, so no glow spills onto the next card;
+     the last card of the run carries the glow along the bottom. */
+  .chat-message[data-card][data-continued] {
+    --card-glow-shadow: 7px 0 12px -6px var(--card-glow);
   }
 
   .chat-message[data-card] .chat-bubble {
@@ -377,7 +387,7 @@
     background: none;
   }
 
-  .chat-message[data-card]:hover .chat-bubble {
+  .chat-message[data-card] .chat-bubble:hover {
     background: var(--card-hover-bg);
   }
 

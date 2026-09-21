@@ -369,6 +369,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
                     roomID={roomID}
                     rowid={item.rowid}
                     compact={item.compact}
+                    continued={items[virtualItem.index + 1]?.compact}
                     newDay={item.newDay}
                     readers={receiptLayout.get(item.rowid)}
                     arrivedAt={arrivals.get(item.rowid)}
