@@ -35,7 +35,7 @@ function rightPanelMaxWidth(sidebarWidth: number) {
 }
 
 /** Right panel views that belong to the room rather than to a message or person. */
-export type RoomTool = 'pins' | 'search' | 'mentions'
+export type RoomTool = 'pins' | 'search' | 'mentions' | 'threads'
 
 export interface MessageDialog {
   type: 'source' | 'delete' | 'original' | 'edits' | 'reactions' | 'receipts'

@@ -8,9 +8,10 @@ import { PinnedPanel } from './PinnedPanel'
 import { RoomDetails } from './RoomDrawer'
 import { SearchPanel } from './SearchPanel'
 import { ThreadView } from './ThreadPanel'
+import { ThreadsPanel } from './ThreadsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 
-export type RightPanelKind = 'details' | 'thread' | 'user' | 'widgets' | 'widget' | 'pins' | 'search' | 'mentions'
+export type RightPanelKind = 'details' | 'thread' | 'threads' | 'user' | 'widgets' | 'widget' | 'pins' | 'search' | 'mentions'
 
 /** The resizable right sidebar. Switching between its views swaps content without re-animating the panel. */
 export function RightPanel({ roomID, kind }: { roomID: RoomID; kind: RightPanelKind }) {
@@ -43,6 +44,7 @@ export function RightPanel({ roomID, kind }: { roomID: RoomID; kind: RightPanelK
       {kind === 'pins' && <PinnedPanel roomID={roomID} />}
       {kind === 'search' && <SearchPanel roomID={roomID} />}
       {kind === 'mentions' && <MentionsPanel key={roomID} roomID={roomID} />}
+      {kind === 'threads' && <ThreadsPanel key={roomID} roomID={roomID} />}
       {kind === 'widgets' && <WidgetListPanel roomID={roomID} />}
       {kind === 'widget' && widgetView?.mode === 'widget' && <WidgetPanel roomID={roomID} widgetID={widgetView.widgetID} />}
     </motion.aside>

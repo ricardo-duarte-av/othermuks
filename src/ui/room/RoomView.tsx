@@ -1,4 +1,4 @@
-import { AtSign, LayoutGrid, Lock, PanelRight, Pin, Search, Settings2, TextSearch, Upload, Video } from 'lucide-react'
+import { AtSign, LayoutGrid, Lock, MessagesSquare, PanelRight, Pin, Search, Settings2, TextSearch, Upload, Video } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -47,6 +47,9 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
       </ToolButton>
       <ToolButton tool="mentions" label="Mentions">
         <AtSign size={17} />
+      </ToolButton>
+      <ToolButton tool="threads" label="Threads">
+        <MessagesSquare size={17} />
       </ToolButton>
       <PinsButton roomID={roomID} />
       <IconButton
