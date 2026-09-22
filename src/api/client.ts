@@ -13,6 +13,7 @@ import { setImageAuthToken, setMediaBackend } from './media'
 import { createSSEParser } from './sse'
 import type {
   EventContextResponse,
+  GetMentionsResponse,
   EventID,
   GetMentionsParams,
   LocalSearchParams,
@@ -756,8 +757,10 @@ export class GomuksClient {
   }
 
   /** Recent events that mention us, newest first. Answered from gomuks' database, never the homeserver. */
-  getMentions(params: GetMentionsParams, signal?: AbortSignal) {
-    return this.exec<RawDBEvent[] | null>('get_mentions', params, signal)
+  async getMentions(params: GetMentionsParams, signal?: AbortSignal): Promise<GetMentionsResponse> {
+    // Older backends answer with a bare array of events.
+    const resp = await this.exec<GetMentionsResponse | RawDBEvent[] | null>('get_mentions', params, signal)
+    return Array.isArray(resp) || !resp ? { events: resp ?? [] } : resp
   }
 }
 

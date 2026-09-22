@@ -57,7 +57,7 @@ export function SearchPanel({ roomID }: { roomID: RoomID }) {
       const resp = useLocal ? await client.searchLocal(params, controller.signal) : await client.searchServer(params, controller.signal)
       if (controller.signal.aborted) return
       const events = resp.events ?? []
-      storeEvents(events)
+      storeEvents(events, resp.related_events)
       // Results from rooms this account isn't in can't be rendered (no members, no room name).
       const known = useChat.getState().rooms
       const found = events.filter(evt => known[evt.room_id]).map(evt => evt.rowid)

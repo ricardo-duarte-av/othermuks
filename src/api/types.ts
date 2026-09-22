@@ -248,10 +248,14 @@ export interface RunData {
   listener_id: number
 }
 
+/**
+ * related_events on paginate, get_event_context, paginate_manual, the searches and get_mentions: reply
+ * targets and latest edits of the returned events that the client may not have yet. Omitted when empty.
+ */
 export interface PaginationResponse {
   events: RawDBEvent[]
   receipts: Record<EventID, DBReceipt[]>
-  related_events: RawDBEvent[]
+  related_events?: RawDBEvent[]
   has_more: boolean
 }
 
@@ -268,11 +272,18 @@ export interface EventContextResponse {
   before: RawDBEvent[]
   after: RawDBEvent[]
   event: RawDBEvent
+  related_events?: RawDBEvent[]
 }
 
 export interface ManualPaginationResponse {
   events: RawDBEvent[]
   next_batch?: string
+  related_events?: RawDBEvent[]
+}
+
+export interface GetMentionsResponse {
+  events: RawDBEvent[]
+  related_events?: RawDBEvent[]
 }
 
 /** search_local: gomuks' own SQLite index, the only one that can see into encrypted rooms. */

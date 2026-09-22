@@ -36,19 +36,18 @@ export function MentionsPanel({ roomID }: { roomID: RoomID }) {
         setHasMore(true)
       }
       try {
-        const events =
-          (await client.getMentions(
-            {
-              // Ask for everything older than the last result we have, or start from now.
-              max_timestamp: append && olderThan !== undefined ? olderThan - 1 : Date.now(),
-              type: highlights ? UnreadType.Highlight : UnreadType.Highlight | UnreadType.Notify,
-              limit: BATCH_SIZE,
-              room_id: scoped ? roomID : undefined,
-            },
-            controller.signal,
-          )) ?? []
+        const { events, related_events } = await client.getMentions(
+          {
+            // Ask for everything older than the last result we have, or start from now.
+            max_timestamp: append && olderThan !== undefined ? olderThan - 1 : Date.now(),
+            type: highlights ? UnreadType.Highlight : UnreadType.Highlight | UnreadType.Notify,
+            limit: BATCH_SIZE,
+            room_id: scoped ? roomID : undefined,
+          },
+          controller.signal,
+        )
         if (controller.signal.aborted) return
-        storeEvents(events)
+        storeEvents(events, related_events)
         const known = useChat.getState().rooms
         const found = events.filter(evt => known[evt.room_id])
         setRowids(prev => (append ? [...prev, ...found.map(evt => evt.rowid)] : found.map(evt => evt.rowid)))

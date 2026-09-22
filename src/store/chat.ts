@@ -165,9 +165,10 @@ class EventTables {
   }
 }
 
-/** Adds events to the tables without touching rooms. */
-export function storeEvents(raws: RawDBEvent[]) {
+/** Adds events (and related ones: reply targets, latest edits) to the tables without touching rooms. */
+export function storeEvents(raws: RawDBEvent[], related?: RawDBEvent[]) {
   const tables = new EventTables(get())
+  tables.add(related)
   tables.add(raws)
   set(tables.patch)
 }
@@ -552,7 +553,7 @@ export async function loadThreadPage(roomID: RoomID, threadRoot: EventID, since 
     limit: 50,
     thread_root: threadRoot,
   })
-  storeEvents(resp.events)
+  storeEvents(resp.events, resp.related_events)
   return resp.next_batch || undefined
 }
 

@@ -55,7 +55,7 @@ export async function loadEventContext(roomID: RoomID, eventID: EventID, reason:
   try {
     const resp = await client.getEventContext(roomID, eventID, CONTEXT_LIMIT)
     const raws = [...resp.before, resp.event, ...resp.after]
-    storeEvents(raws)
+    storeEvents(raws, resp.related_events)
     if (!stillWanted()) return
     const s = useChat.getState()
     const rowids = [...new Set(raws.map(raw => s.eventIDs[raw.event_id]).filter((rowid): rowid is EventRowID => rowid !== undefined))].sort(
