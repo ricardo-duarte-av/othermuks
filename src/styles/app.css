@@ -563,24 +563,35 @@
    * slow pulse either way: a left bar and tint on a flat row, a ring and halo around a card.
    */
   .chat-message[data-mention] {
-    --mention-color: var(--accent);
+    /* --danger, not --accent: links, pills and some senders are already accent-coloured. */
+    --mention-color: var(--danger);
     animation: mention-strobe 3.4s ease-in-out infinite;
   }
 
   .chat-message[data-mention]:not([data-card]) .chat-bubble {
     border-radius: var(--bubble-radius);
-    background: oklch(from var(--mention-color) l c h / calc(0.06 + 0.1 * var(--mention-level, 0)));
-    box-shadow: inset 3px 0 0 oklch(from var(--mention-color) l c h / calc(0.45 + 0.55 * var(--mention-level, 0)));
+    background: oklch(from var(--mention-color) l c h / calc(0.1 + 0.12 * var(--mention-level, 0)));
+    box-shadow: inset 3px 0 0 oklch(from var(--mention-color) l c h / calc(0.55 + 0.45 * var(--mention-level, 0)));
     padding: 0.125rem 0.5rem 0.125rem 0.625rem;
     margin-left: -0.625rem;
   }
 
-  /* Cards keep their own lift; the mention adds an accent ring and a halo on top of it. */
+  /*
+   * A mentioning card is a differently coloured card, not a glowing one: the sender glow would blend
+   * with any halo we added. The mention takes over the card's glow and edge so only one colour is lit.
+   */
+  .chat-message[data-mention][data-card] {
+    --card-glow: oklch(from var(--mention-color) l c h / calc(0.4 + 0.35 * var(--mention-level, 0)));
+    --card-glow-shadow: 0 0 16px -3px var(--card-glow);
+    --card-edge: oklch(from var(--mention-color) l c h / calc(0.5 + 0.35 * var(--mention-level, 0)));
+  }
+
   .chat-message[data-mention][data-card] .chat-bubble {
-    box-shadow:
-      var(--card-shadow),
-      0 0 0 1px oklch(from var(--mention-color) l c h / calc(0.3 + 0.45 * var(--mention-level, 0))),
-      0 0 12px 1px oklch(from var(--mention-color) l c h / calc(0.08 + 0.22 * var(--mention-level, 0)));
+    background: color-mix(in oklch, var(--card-bg), var(--mention-color) calc(12% + 10% * var(--mention-level, 0)));
+  }
+
+  .chat-message[data-mention][data-card] .chat-bubble:hover {
+    background: color-mix(in oklch, var(--card-hover-bg), var(--mention-color) calc(12% + 10% * var(--mention-level, 0)));
   }
 
   /* A message jumped to from a reply: flash, then fade back. */
