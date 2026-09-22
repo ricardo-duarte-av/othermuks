@@ -557,6 +557,32 @@
     animation-delay: 0.3s;
   }
 
+  /*
+   * A message that mentions us breathes in the accent colour so it can be found by scrolling past it.
+   * Both modes animate --mention-level (0 → 1) and build their own paint from it, so the strobe is one
+   * slow pulse either way: a left bar and tint on a flat row, a ring and halo around a card.
+   */
+  .chat-message[data-mention] {
+    --mention-color: var(--accent);
+    animation: mention-strobe 3.4s ease-in-out infinite;
+  }
+
+  .chat-message[data-mention]:not([data-card]) .chat-bubble {
+    border-radius: var(--bubble-radius);
+    background: oklch(from var(--mention-color) l c h / calc(0.06 + 0.1 * var(--mention-level, 0)));
+    box-shadow: inset 3px 0 0 oklch(from var(--mention-color) l c h / calc(0.45 + 0.55 * var(--mention-level, 0)));
+    padding: 0.125rem 0.5rem 0.125rem 0.625rem;
+    margin-left: -0.625rem;
+  }
+
+  /* Cards keep their own lift; the mention adds an accent ring and a halo on top of it. */
+  .chat-message[data-mention][data-card] .chat-bubble {
+    box-shadow:
+      var(--card-shadow),
+      0 0 0 1px oklch(from var(--mention-color) l c h / calc(0.3 + 0.45 * var(--mention-level, 0))),
+      0 0 12px 1px oklch(from var(--mention-color) l c h / calc(0.08 + 0.22 * var(--mention-level, 0)));
+  }
+
   /* A message jumped to from a reply: flash, then fade back. */
   .chat-message[data-highlight],
   .state-event[data-highlight] {
@@ -599,5 +625,30 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* Registered so it interpolates: an unregistered custom property would jump between keyframes. */
+@property --mention-level {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@keyframes mention-strobe {
+  0%,
+  100% {
+    --mention-level: 0;
+  }
+  50% {
+    --mention-level: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still marked, just held at the bright end of the pulse instead of moving. */
+  .chat-message[data-mention] {
+    animation: none;
+    --mention-level: 1;
   }
 }

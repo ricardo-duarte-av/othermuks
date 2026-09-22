@@ -1,4 +1,4 @@
-import type { EventID, MemberEventContent, MessageEventContent, RawDBEvent, RelatesTo, UserID } from '@/api/types'
+import { UnreadType, type EventID, type MemberEventContent, type MessageEventContent, type RawDBEvent, type RelatesTo, type UserID } from '@/api/types'
 
 /** A DB event with decrypted content (if any) moved into type/content. */
 export interface TimelineEvent extends RawDBEvent {
@@ -87,6 +87,17 @@ export const GROUP_WINDOW = 60_000
 
 export function isMessageLike(evt: TimelineEvent): boolean {
   return evt.type === 'm.room.message' || evt.type === 'm.sticker' || evt.type === 'm.room.encrypted'
+}
+
+/**
+ * Whether this event calls the local user out: gomuks' push-rule verdict when it has one (backfilled
+ * events carry unread_type 0), falling back to an explicit m.mentions of us. Our own messages never count.
+ */
+export function mentionsUser(evt: TimelineEvent, ownUserID: UserID | undefined): boolean {
+  if (!ownUserID || evt.sender === ownUserID || evt.redacted_by) return false
+  if (evt.unread_type & UnreadType.Highlight) return true
+  const content = (evt.content['m.new_content'] ?? evt.content) as MessageEventContent
+  return content['m.mentions']?.user_ids?.includes(ownUserID) ?? false
 }
 
 /** Timeline visibility preferences (see store/preferences). */

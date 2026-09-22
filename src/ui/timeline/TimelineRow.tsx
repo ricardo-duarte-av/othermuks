@@ -55,6 +55,7 @@ import {
   isFailedSend,
   isMessageLike,
   isPendingEvent,
+  mentionsUser,
   previewText,
   type TimelineEvent,
 } from '@/store/events'
@@ -102,6 +103,7 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
   const [entering] = useState(() => arrivedAt !== undefined && Date.now() - arrivedAt < ENTER_ANIMATION_WINDOW)
   if (!evt) return null
   const own = evt.sender === ownUserID
+  const mention = mentionsUser(evt, ownUserID)
 
   return (
     <motion.div
@@ -117,7 +119,7 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
       ) : hasNoRenderer(evt) ? (
         <HiddenRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       ) : isMessageLike(evt) ? (
-        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} threadRoot={threadRoot} readers={readers} />
+        <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} mention={mention} threadRoot={threadRoot} readers={readers} />
       ) : (
         <StateRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       )}
@@ -447,11 +449,13 @@ interface MessageRowProps {
   evt: TimelineEvent
   compact: boolean
   own: boolean
+  /** The message calls us out, so the row strobes (see .chat-message[data-mention] in app.css). */
+  mention: boolean
   threadRoot?: EventID
   readers?: UserID[]
 }
 
-function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageRowProps) {
+function MessageRow({ roomID, evt, compact, own, mention, threadRoot, readers }: MessageRowProps) {
   const codeWrap = usePreference('code_block_line_wrap', roomID)
   const inlineImages = usePreference('show_inline_images', roomID)
   const maxImageWidth = usePreference('max_image_width', roomID)
@@ -476,6 +480,7 @@ function MessageRow({ roomID, evt, compact, own, threadRoot, readers }: MessageR
       className={cn('chat-message group relative flex gap-3 px-4', compact ? (card ? 'py-0.5' : 'py-px') : card ? 'pb-0.5 pt-2' : 'pb-px pt-2')}
       data-rowid={evt.rowid}
       data-own={own || undefined}
+      data-mention={mention || undefined}
       data-card={card || undefined}
       data-pending={pending || undefined}
       data-failed={failed || undefined}
