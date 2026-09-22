@@ -84,9 +84,9 @@
   --message-hover-bg: oklch(from var(--surface) l c h / 0.6);
   /*
    * Message cards (the message_cards preference). Derived from the timeline background rather than
-   * --surface, which some palettes put below --bg. Dark themes lift the card with a lighter face, a
-   * top-edge highlight and a glow in the sender's name colour; light themes override these below with a
-   * shadow. --card-glow and --card-shadow are assembled per message (.chat-message[data-card]).
+   * --surface, which some palettes put below --bg. Dark themes lift the card with a lighter face and a
+   * top-edge highlight; light themes override these below with a shadow. --card-shadow is assembled
+   * per message (.chat-message[data-card]) so a mention can recolour the edge it is built from.
    */
   --card-bg: oklch(from var(--timeline-bg) calc(l + 0.05) calc(c + 0.005) h);
   --card-own-bg: var(--card-bg);
@@ -96,7 +96,6 @@
   --card-highlight: oklch(1 0 0 / 0.08);
   --card-edge: oklch(1 0 0 / 0.045);
   --card-shadow-color: oklch(0 0 0 / 0.35);
-  --card-glow-strength: 0.35;
   --notice-text: var(--muted);
   /* Quoted replies use the raised surface so they stay distinct from a hovered message row. */
   --reply-bg: oklch(from var(--surface-2) l c h / 0.55);
@@ -256,7 +255,6 @@
   --card-highlight: transparent;
   --card-edge: oklch(from var(--fg) l c h / 0.1);
   --card-shadow-color: oklch(from var(--fg) l c h / 0.12);
-  --card-glow-strength: 0;
 }
 
 @layer base {
@@ -352,16 +350,10 @@
     flex: 1 1 0%;
   }
 
-  /*
-   * Declared on the row, not :root, so the glow picks up this message's --sender-color. The glow falls
-   * to the bottom right, as if lit from the top left; the negative spread keeps it off the other edges.
-   * Later rows paint above earlier ones, so a glow never lands on the card below, only around it.
-   */
+  /* Declared on the row, not :root, so a mention can recolour --card-edge and have the shadow follow. */
   .chat-message[data-card] {
-    --card-glow: oklch(from var(--sender-color, var(--accent)) l c h / var(--card-glow-strength));
-    --card-glow-shadow: 6px 7px 16px -5px var(--card-glow);
     --card-shadow: inset 0 1px 0 var(--card-highlight), 0 0 0 1px var(--card-edge), 0 1px 2px var(--card-shadow-color),
-      0 3px 10px -2px var(--card-shadow-color), var(--card-glow-shadow);
+      0 3px 10px -2px var(--card-shadow-color);
   }
 
   .chat-message[data-card] .chat-bubble {
@@ -576,13 +568,8 @@
     margin-left: -0.625rem;
   }
 
-  /*
-   * A mentioning card is a differently coloured card, not a glowing one: the sender glow would blend
-   * with any halo we added. The mention takes over the card's glow and edge so only one colour is lit.
-   */
+  /* A mentioning card is a differently coloured card: the edge and face pulse, nothing haloes. */
   .chat-message[data-mention][data-card] {
-    --card-glow: oklch(from var(--mention-color) l c h / calc(0.4 + 0.35 * var(--mention-level, 0)));
-    --card-glow-shadow: 0 0 16px -3px var(--card-glow);
     --card-edge: oklch(from var(--mention-color) l c h / calc(0.5 + 0.35 * var(--mention-level, 0)));
   }
 

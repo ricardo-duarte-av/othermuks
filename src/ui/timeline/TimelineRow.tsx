@@ -546,7 +546,7 @@ function MessageRow({ roomID, evt, compact, own, mention, threadRoot, readers }:
       data-highlight={highlighted || undefined}
       data-code-wrap={codeWrap || undefined}
       data-hide-inline-images={!inlineImages || undefined}
-      style={{ '--max-image-width': `${maxImageWidth}px`, '--sender-color': userColor(evt.sender) } as CSSProperties}
+      style={{ '--max-image-width': `${maxImageWidth}px` } as CSSProperties}
     >
       <div className="flex w-10 shrink-0 justify-end">
         {compact ? (
@@ -1163,7 +1163,7 @@ function Reactions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
     }
   }
 
-  // Positioned, like the message card before it, so the chips paint above the card's glow.
+  // Positioned, like the message card before it, so the chips stack above the card's shadow.
   return (
     <div className="reactions relative mt-1 flex flex-wrap gap-1">
       {entries.map(([key, count]) => (

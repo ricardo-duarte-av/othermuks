@@ -239,7 +239,7 @@ const REFERENCE: [selector: string, description: string][] = [
   ['.unread-badge', 'Unread counter. [data-level="notify" | "highlight"]; --badge-bg, --badge-text'],
   ['.chat-message', 'Message row. [data-own], [data-card], [data-pending], [data-highlight]'],
   ['.chat-bubble', 'Message content. --bubble-bg, --bubble-own-bg, --bubble-radius'],
-  ['.chat-message[data-card] .chat-bubble', 'Message card. --card-bg, --card-own-bg, --card-hover-bg, --card-radius, --card-padding, --card-shadow, --card-glow-strength (glow uses --sender-color)'],
+  ['.chat-message[data-card] .chat-bubble', 'Message card. --card-bg, --card-own-bg, --card-hover-bg, --card-radius, --card-padding, --card-shadow'],
   ['.message-body[data-notice]', 'Bot notice text. --notice-text'],
   ['.message-body', 'Formatted message text'],
   ['.reply-preview', 'Quoted reply above a message. --reply-bg, --reply-hover-bg'],
