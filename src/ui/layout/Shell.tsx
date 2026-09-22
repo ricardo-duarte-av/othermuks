@@ -2,6 +2,7 @@ import { AnimatePresence } from 'motion/react'
 import { MessagesSquare } from 'lucide-react'
 import { useEffect } from 'react'
 import { useChat } from '@/store/chat'
+import { closeRoomPreview, useInvite, useRoomPreview } from '@/store/membership'
 import { getRoomSort } from '@/store/preferences'
 import { roomIDsInRows, spaceListRows } from '@/store/spaces'
 import { closeRoomTool, MIN_TIMELINE_WIDTH, openRoom, openRoomTool, useUI } from '@/store/ui'
@@ -12,6 +13,8 @@ import { Kbd, Spinner } from '@/ui/primitives'
 import { MessageDialogs, Toaster } from '@/ui/room/MessageDialogs'
 import { StateExplorer } from '@/ui/room/StateExplorer'
 import { RightPanel, type RightPanelKind } from '@/ui/room/RightPanel'
+import { InviteView } from '@/ui/room/InviteView'
+import { JoinRoomView } from '@/ui/room/JoinRoomView'
 import { RoomView } from '@/ui/room/RoomView'
 import { installMatrixLinkHandler } from '@/ui/matrixLinks'
 import { SettingsDialog } from '@/ui/settings/SettingsDialog'
@@ -58,6 +61,8 @@ function useGlobalShortcuts() {
         const searchVisible = ui.roomTool === 'search' && !ui.threadRoot && !ui.profileUserID && !ui.widgetView
         if (searchVisible) closeRoomTool()
         else openRoomTool('search')
+      } else if (e.key === 'Escape' && !isEditable(e.target) && useRoomPreview.getState().preview) {
+        closeRoomPreview()
       } else if (
         e.key === 'Escape' &&
         !isEditable(e.target) &&
@@ -135,6 +140,10 @@ export function Shell() {
   const profileUserID = useUI(s => s.profileUserID)
   const rightPanelWidth = useUI(s => s.rightPanelWidth)
   const hasRoom = useChat(s => !!activeRoomID && !!s.rooms[activeRoomID])
+  // An invited room has no timeline yet: the main area shows the invite instead.
+  const invite = useInvite(hasRoom ? null : activeRoomID)
+  // Following a link to a room we're not in takes over the main area until it's dismissed.
+  const preview = useRoomPreview(s => s.preview)
 
   let panel: RightPanelKind | null = null
   if (hasRoom) {
@@ -160,7 +169,15 @@ export function Shell() {
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--timeline-bg)]" style={{ marginRight: panel ? `min(${rightPanelWidth}px, calc(100% - ${MIN_TIMELINE_WIDTH}px))` : 0 }}>
           <ConnectionBanner />
-          {hasRoom ? <RoomView key={activeRoomID} roomID={activeRoomID!} /> : <EmptyState />}
+          {preview ? (
+            <JoinRoomView key={preview.reference} preview={preview} />
+          ) : hasRoom ? (
+            <RoomView key={activeRoomID} roomID={activeRoomID!} />
+          ) : invite ? (
+            <InviteView key={invite.roomID} invite={invite} />
+          ) : (
+            <EmptyState />
+          )}
         </main>
         <AnimatePresence initial={false}>
           {panel && <RightPanel key="right-panel" roomID={activeRoomID!} kind={panel} />}

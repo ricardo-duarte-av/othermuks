@@ -5,6 +5,7 @@ import { client } from '@/api/client'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
 import type { MatrixTarget } from '@/lib/matrixURI'
 import { storeEvents, useChat } from './chat'
+import { closeRoomPreview, openRoomPreview } from './membership'
 import { threadRootOf } from './events'
 import { openProfile, openRoom, openThread, showToast, useUI } from './ui'
 
@@ -124,18 +125,26 @@ export async function openMatrixTarget(target: MatrixTarget) {
     if (!roomID) {
       try {
         roomID = (await client.resolveAlias(alias)).room_id
-      } catch (err) {
-        showToast(`Couldn't find ${alias}: ${errorText(err)}`)
+      } catch {
+        // The directory wouldn't resolve it; the join screen can still try the alias itself.
+        void openRoomPreview({ alias, eventID: target.eventID, via: target.via })
         return
       }
     }
   }
   if (!roomID) return
+  // Not in the room: an invite for it opens the invite, anything else the join screen.
   if (!useChat.getState().rooms[roomID]) {
-    showToast("You haven't joined that room")
+    if (useChat.getState().invites.some(invite => invite.room_id === roomID)) {
+      closeRoomPreview()
+      openRoom(roomID)
+      return
+    }
+    void openRoomPreview({ roomID, alias: target.alias, eventID: target.eventID, via: target.via })
     return
   }
 
+  closeRoomPreview()
   if (useUI.getState().activeRoomID !== roomID) {
     closeEventContext()
     openRoom(roomID)

@@ -22,6 +22,7 @@ import type {
   PaginationResponse,
   RawDBEvent,
   RoomID,
+  RoomSummary,
   RPCEvent,
   SendMessageParams,
   ServerSearchParams,
@@ -735,6 +736,30 @@ export class GomuksClient {
 
   leaveRoom(room_id: RoomID, reason?: string) {
     return this.exec<Record<string, never>>('leave_room', { room_id, reason })
+  }
+
+  /** Joins a room by ID or alias. from_invite accepts a pending invite rather than joining afresh. */
+  joinRoom(room_id_or_alias: RoomID | string, { via, reason, fromInvite }: { via?: string[]; reason?: string; fromInvite?: boolean } = {}) {
+    return this.exec<{ room_id: RoomID }>('join_room', {
+      room_id_or_alias,
+      via: via?.length ? via : undefined,
+      reason: reason || undefined,
+      from_invite: fromInvite || undefined,
+    })
+  }
+
+  /** Asks to join a room whose join rule is "knock"; the request waits for someone to accept it. */
+  knockRoom(room_id_or_alias: RoomID | string, { via, reason }: { via?: string[]; reason?: string } = {}) {
+    return this.exec<{ room_id: RoomID }>('knock_room', {
+      room_id_or_alias,
+      via: via?.length ? via : undefined,
+      reason: reason || undefined,
+    })
+  }
+
+  /** What the homeserver will say about a room before joining it (MSC3266). */
+  getRoomSummary(room_id_or_alias: RoomID | string, via?: string[]) {
+    return this.exec<RoomSummary>('get_room_summary', { room_id_or_alias, via: via?.length ? via : undefined })
   }
 
   /** Messages around an event, for showing a linked message that isn't in the loaded timeline. */

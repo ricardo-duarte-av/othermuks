@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { BellOff, Search, Star } from 'lucide-react'
+import { BellOff, MailPlus, Search, Star } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID } from '@/api/types'
@@ -8,6 +8,7 @@ import { formatRoomTime } from '@/lib/format'
 import { markOnce } from '@/lib/perf'
 import { useChat } from '@/store/chat'
 import { fallbackDisplayName, isMessageLike, previewText } from '@/store/events'
+import { useInvites } from '@/store/membership'
 import { usePreference, useRoomSort } from '@/store/preferences'
 import { FAVOURITE_TAG, isRoomMuted, LOW_PRIORITY_TAG, roomTagsOf } from '@/store/roomActions'
 import { DM_SPACE, HOME_SPACE, spaceListRows, type RoomListRow } from '@/store/spaces'
@@ -230,6 +231,48 @@ function PinnedHeaders({ spaceIDs, edge, onJump }: { spaceIDs: RoomID[]; edge: '
   )
 }
 
+/**
+ * Pending invites, above the room list: they have no timeline yet, so they aren't rooms the list can
+ * show. Invites belong to no space, so they stay visible whichever space is selected.
+ */
+function InviteSection() {
+  const invites = useInvites()
+  const activeRoomID = useUI(s => s.activeRoomID)
+  if (!invites.length) return null
+  return (
+    <div className="invite-section shrink-0 px-2 pb-1">
+      <div className="flex h-8 items-center gap-1.5 px-2 text-xs font-semibold uppercase tracking-wide text-muted">
+        <MailPlus size={13} className="text-accent" />
+        Invites
+        <span className="ml-auto rounded-full bg-accent px-1.5 py-px text-[10px] font-semibold leading-none text-accent-fg tabular-nums">
+          {invites.length}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {invites.map(invite => (
+          <li key={invite.roomID}>
+            <button
+              type="button"
+              onClick={() => openRoom(invite.roomID)}
+              data-active={invite.roomID === activeRoomID || undefined}
+              aria-current={invite.roomID === activeRoomID || undefined}
+              className="room-list-item invite-row flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors"
+            >
+              <Avatar mxc={invite.avatar} id={invite.roomID} name={invite.name} size={32} />
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-sm font-medium">{invite.name ?? invite.canonicalAlias ?? invite.roomID}</span>
+                <span className="block truncate text-xs text-accent">
+                  {invite.inviterName ? `${invite.inviterName} invited you` : 'Invitation'}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function RoomList({ spaceID }: { spaceID: string }) {
   const sort = useRoomSort()
   const compact = usePreference('compact_room_list')
@@ -319,6 +362,7 @@ export function Sidebar() {
           <Kbd>Ctrl K</Kbd>
         </span>
       </button>
+      <InviteSection />
       <RoomList spaceID={spaceID} />
       <ResizeHandle
         edge="right"

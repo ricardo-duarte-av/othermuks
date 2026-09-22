@@ -178,10 +178,38 @@ export interface SyncRoom {
   receipts?: Record<EventID, DBReceipt[]> | null
 }
 
+export interface StrippedStateEvent {
+  type: EventType
+  state_key: string
+  sender: UserID
+  content: Record<string, unknown>
+  /** Our own invite event carries the room's stripped state here (invite_room_state). */
+  unsigned?: { invite_room_state?: StrippedStateEvent[] | null }
+}
+
 export interface DBInvitedRoom {
   room_id: RoomID
   created_at: number
-  invite_state: { type: EventType; state_key: string; sender: UserID; content: Record<string, unknown> }[]
+  invite_state: StrippedStateEvent[]
+}
+
+/** MSC3266 room summary: what the server tells you about a room before you join it. */
+export interface RoomSummary {
+  room_id: RoomID
+  canonical_alias?: string
+  name?: string
+  topic?: string
+  avatar_url?: string
+  num_joined_members?: number
+  /** "public", "invite", "knock", "restricted", "knock_restricted" or "private". */
+  join_rule?: string
+  room_type?: string
+  room_version?: string
+  world_readable?: boolean
+  guest_can_join?: boolean
+  encryption?: string
+  /** Own membership in the room, when the server knows of one. */
+  membership?: string
 }
 
 export interface DBSpaceEdge {

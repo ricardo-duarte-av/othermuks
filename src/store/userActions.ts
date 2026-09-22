@@ -1,6 +1,6 @@
 // What can be done to a user from their profile: DMs, membership, power level and cleaning up after them.
 import { client } from '@/api/client'
-import type { EventRowID, RoomID, UserID } from '@/api/types'
+import type { EventID, EventRowID, RoomID, UserID } from '@/api/types'
 import { useChat, type ChatSnapshot } from './chat'
 import { isPendingEvent, type TimelineEvent } from './events'
 import { eventPowerLevel, userPowerLevel, type PowerLevelsContent } from './power'
@@ -21,17 +21,25 @@ export function findDMRoom(s: ChatSnapshot, userID: UserID): RoomID | undefined 
   return Object.values(s.rooms).find(room => room.meta.dm_user_id === userID)?.meta.room_id
 }
 
-/** Opens the room once it shows up in a sync (rooms just created or joined take a moment). */
-export function openWhenJoined(roomID: RoomID) {
-  if (useChat.getState().rooms[roomID]) {
+/**
+ * Opens the room once it shows up in a sync (rooms just created or joined take a moment), and jumps
+ * to an event in it when one was asked for, e.g. the message a link pointed at before joining.
+ */
+export function openWhenJoined(roomID: RoomID, eventID?: EventID) {
+  const arrive = () => {
     openRoom(roomID)
+    // Imported lazily: navigation imports this module for its own room opening.
+    if (eventID) void import('./navigation').then(({ jumpToEvent }) => jumpToEvent(roomID, eventID))
+  }
+  if (useChat.getState().rooms[roomID]) {
+    arrive()
     return
   }
   const unsubscribe = useChat.subscribe(s => {
     if (!s.rooms[roomID]) return
     unsubscribe()
     clearTimeout(timeout)
-    openRoom(roomID)
+    arrive()
   })
   const timeout = setTimeout(unsubscribe, 60_000)
 }

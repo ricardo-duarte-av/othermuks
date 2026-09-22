@@ -19,6 +19,8 @@ import {
   SmilePlus,
   SquareTerminal,
   Sticker,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Undo2,
   Users,
@@ -60,8 +62,9 @@ import {
   type TimelineEvent,
 } from '@/store/events'
 import { customEmojiShortcode } from '@/store/emoji'
-import { useMember } from '@/store/hooks'
+import { useMember, useRoomPowerContext } from '@/store/hooks'
 import { useCanRedact } from '@/store/permissions'
+import { moderationRights } from '@/store/userActions'
 import { setPinned, useCanPin, useIsPinned } from '@/store/pins'
 import { usePreference } from '@/store/preferences'
 import type { PickerSelection } from '@/ui/emoji/items'
@@ -70,7 +73,7 @@ import { loadReactionDetails, reactionSignature, useReactionDetails, type Reacto
 import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
 import { blurhashDataURL, blurhashOf } from '@/ui/blurhash'
 import { sanitizeHTML } from '@/ui/html'
-import { Avatar } from '@/ui/primitives'
+import { Avatar, Spinner } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
 import { ReadReceipts } from './ReadReceipts'
 
@@ -368,6 +371,60 @@ function StateDescription({ evt, senderName, senderAvatar, subjectName }: Descri
   )
 }
 
+/**
+ * Someone asked to join the room, so let anyone who can invite let them in (or turn them away)
+ * without going to their profile. Only shown while the request is still pending: once it's accepted,
+ * rejected or withdrawn, the room's current member event has moved on from "knock".
+ */
+function KnockActions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+  const userID = evt.state_key
+  const ownUserID = useChat(selectOwnUserID)
+  const { powerLevels, createEvent } = useRoomPowerContext(roomID)
+  const current = useChat(s => {
+    const rowid = userID === undefined ? undefined : s.rooms[roomID]?.state['m.room.member']?.[userID]
+    return rowid === undefined ? undefined : (s.events[rowid]?.content.membership as string | undefined)
+  })
+  const [busy, setBusy] = useState<'accept' | 'reject' | null>(null)
+  if (!userID || current !== 'knock') return null
+  const rights = moderationRights(powerLevels, createEvent, ownUserID, userID)
+  if (!rights.invite && !rights.kick) return null
+
+  const run = (action: 'accept' | 'reject') => async () => {
+    setBusy(action)
+    try {
+      await client.setMembership(roomID, userID, action === 'accept' ? 'invite' : 'kick')
+    } catch (err) {
+      showToast(`Couldn't ${action === 'accept' ? 'accept' : 'reject'} the join request: ${errorText(err)}`)
+      setBusy(null)
+    }
+  }
+
+  return (
+    <span className="knock-actions ml-2 inline-flex gap-1 align-middle">
+      {rights.invite && (
+        <button
+          type="button"
+          disabled={!!busy}
+          onClick={() => void run('accept')()}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-hover disabled:opacity-60"
+        >
+          {busy === 'accept' ? <Spinner size={11} /> : <ThumbsUp size={11} />} Let in
+        </button>
+      )}
+      {rights.kick && (
+        <button
+          type="button"
+          disabled={!!busy}
+          onClick={() => void run('reject')()}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-hover hover:text-danger disabled:opacity-60"
+        >
+          {busy === 'reject' ? <Spinner size={11} /> : <ThumbsDown size={11} />} Reject
+        </button>
+      )}
+    </span>
+  )
+}
+
 interface StateRowProps {
   roomID: RoomID
   evt: TimelineEvent
@@ -398,6 +455,7 @@ function StateRow({ roomID, evt, own, threadRoot, readers }: StateRowProps) {
           senderAvatar={typeof sender?.avatar_url === 'string' ? (sender.avatar_url as ContentURI) : undefined}
           subjectName={subjectName}
         />
+        {evt.type === 'm.room.member' && evt.content.membership === 'knock' && <KnockActions roomID={roomID} evt={evt} />}
         {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
       </div>
       <time title={formatFull(evt.timestamp)} className="invisible shrink-0 pt-1 leading-4 tabular-nums group-hover:visible">

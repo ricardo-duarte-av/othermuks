@@ -1,8 +1,10 @@
 import { Command } from 'cmdk'
-import { PanelRight, Palette } from 'lucide-react'
+import { DoorOpen, PanelRight, Palette } from 'lucide-react'
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { RoomID } from '@/api/types'
 import { useChat } from '@/store/chat'
+import { parseMatrixURI, type MatrixTarget } from '@/lib/matrixURI'
+import { openMatrixTarget } from '@/store/navigation'
 import { openRoom, setTheme, THEMES, useUI } from '@/store/ui'
 import { Avatar } from '@/ui/primitives'
 
@@ -32,11 +34,31 @@ const PaletteRoom = memo(function PaletteRoom({ roomID }: { roomID: RoomID }) {
   )
 })
 
+/**
+ * A room the palette can send us to but isn't in the list: typed as an ID or alias, or pasted as a
+ * matrix.to / matrix: link. Rooms already joined are left to the list above.
+ */
+type RoomTarget = Extract<MatrixTarget, { kind: 'room' }>
+
+function typedRoomTarget(text: string): RoomTarget | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const parsed = parseMatrixURI(trimmed)
+  if (parsed?.kind === 'room') return parsed
+  if (/^[#!][^\s:]+:\S+$/.test(trimmed)) {
+    return trimmed.startsWith('#') ? { kind: 'room', alias: trimmed, via: [] } : { kind: 'room', roomID: trimmed, via: [] }
+  }
+  return null
+}
+
 export function CommandPalette() {
   const open = useUI(s => s.paletteOpen)
   const hasRoom = useUI(s => !!s.activeRoomID)
   const roomOrder = useChat(s => s.roomOrder)
   const [search, setSearch] = useState('')
+  const typed = typedRoomTarget(search)
+  // Only offer joining when it isn't a room we're already in, which the list above already shows.
+  const typedIsKnown = useChat(s => !!typed?.roomID && !!s.rooms[typed.roomID])
   const listRef = useRef<HTMLDivElement>(null)
   const close = () => useUI.setState({ paletteOpen: false })
 
@@ -79,6 +101,24 @@ export function CommandPalette() {
             <PaletteRoom key={roomID} roomID={roomID} />
           ))}
         </Command.Group>
+        {typed && !typedIsKnown && (
+          <Command.Group heading="Go to">
+            <Command.Item
+              value={search.trim()}
+              keywords={['join', 'room', 'alias']}
+              onSelect={() => {
+                close()
+                void openMatrixTarget(typed)
+              }}
+              className={itemClass}
+            >
+              <DoorOpen size={16} className="text-muted" />
+              <span className="min-w-0 truncate">
+                Join <span className="font-mono">{typed.alias ?? typed.roomID}</span>
+              </span>
+            </Command.Item>
+          </Command.Group>
+        )}
         <Command.Group heading="Actions">
           {hasRoom && (
             <Command.Item
