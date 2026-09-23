@@ -390,8 +390,14 @@ function addLocalEcho(roomID: RoomID, raw: RawDBEvent, pending: boolean) {
   const s = get()
   const room = s.rooms[roomID]
   const inTimeline = room?.timeline.some(tuple => tuple.event_rowid === raw.rowid)
+  // send_complete (and the sync that follows it) can beat the send_message response back to us: both
+  // describe the same rowid, but only the echo we're holding still has the "~txn" ID and the "not sent"
+  // placeholder. Writing it over the confirmed event would leave the message greyed out and
+  // actionless until a reload, so the stored version wins whenever it's already past the echo.
+  const stored = s.events[raw.rowid]
+  const superseded = !!stored && isPendingEvent(raw) && !isPendingEvent(stored)
   const tables = new EventTables(s)
-  tables.add([raw])
+  if (!superseded) tables.add([raw])
   if (!room || !pending || inTimeline || room.pending.includes(raw.rowid)) {
     set(tables.patch)
     return

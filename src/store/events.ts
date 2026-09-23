@@ -21,7 +21,7 @@ export function normalizeEvent(raw: RawDBEvent): TimelineEvent {
 }
 
 /** Local echoes don't have a real event ID until the homeserver accepts them. */
-export function isPendingEvent(evt: TimelineEvent): boolean {
+export function isPendingEvent(evt: Pick<RawDBEvent, 'event_id'>): boolean {
   return !evt.event_id || evt.event_id.startsWith('~')
 }
 
