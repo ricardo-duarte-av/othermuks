@@ -1,4 +1,4 @@
-import { UnreadType, type EventID, type MemberEventContent, type MessageEventContent, type RawDBEvent, type RelatesTo, type UserID } from '@/api/types'
+import type { EventID, MemberEventContent, MessageEventContent, RawDBEvent, RelatesTo, UserID } from '@/api/types'
 
 /** A DB event with decrypted content (if any) moved into type/content. */
 export interface TimelineEvent extends RawDBEvent {
@@ -90,12 +90,13 @@ export function isMessageLike(evt: TimelineEvent): boolean {
 }
 
 /**
- * Whether this event calls the local user out: gomuks' push-rule verdict when it has one (backfilled
- * events carry unread_type 0), falling back to an explicit m.mentions of us. Our own messages never count.
+ * Whether this event names the local user in m.mentions. The push-rule verdict (unread_type) can't be
+ * used for this: it highlights every message in a DM, so a one-to-one room would strobe end to end.
+ * Backfilled events carry unread_type 0 anyway, so the content is the only consistent signal.
+ * Our own messages never count.
  */
 export function mentionsUser(evt: TimelineEvent, ownUserID: UserID | undefined): boolean {
   if (!ownUserID || evt.sender === ownUserID || evt.redacted_by) return false
-  if (evt.unread_type & UnreadType.Highlight) return true
   const content = (evt.content['m.new_content'] ?? evt.content) as MessageEventContent
   return content['m.mentions']?.user_ids?.includes(ownUserID) ?? false
 }
