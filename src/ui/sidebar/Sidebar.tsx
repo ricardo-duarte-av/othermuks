@@ -6,7 +6,7 @@ import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatRoomTime } from '@/lib/format'
 import { markOnce } from '@/lib/perf'
-import { useChat } from '@/store/chat'
+import { useChat, type ChatSnapshot } from '@/store/chat'
 import { fallbackDisplayName, isMessageLike, previewText } from '@/store/events'
 import { useInvites } from '@/store/membership'
 import { usePreference, useRoomSort } from '@/store/preferences'
@@ -125,11 +125,44 @@ function UnreadBadge({ count, level }: { count: number; level: string }) {
   )
 }
 
-const SectionHeader = memo(function SectionHeader({ spaceID }: { spaceID: RoomID }) {
+/**
+ * A section's rooms summed into one badge, so a collapsed or pinned header says whether the loud
+ * notification is in there. Each room counts the same badge it shows itself, and the section takes
+ * the loudest level any of its rooms has.
+ */
+function sectionUnread(s: ChatSnapshot, roomIDs: RoomID[], muteLowPriority: boolean) {
+  let count = 0
+  let level = 'normal'
+  for (const roomID of roomIDs) {
+    const meta = s.rooms[roomID]?.meta
+    if (!meta) continue
+    const lowPriority = LOW_PRIORITY_TAG in roomTagsOf(s, roomID)
+    const unreadMessages = lowPriority && muteLowPriority ? 0 : meta.unread_messages
+    count += meta.unread_highlights || meta.unread_notifications || unreadMessages
+    // A muted room still flags its section when it mentions us, matching how its own badge is drawn.
+    if (meta.unread_highlights) level = 'highlight'
+    else if (meta.unread_notifications && level === 'normal' && !isRoomMuted(s, roomID)) level = 'notify'
+  }
+  return { count, level }
+}
+
+const NO_ROOMS: RoomID[] = []
+
+const SectionHeader = memo(function SectionHeader({
+  spaceID,
+  roomIDs,
+  muteLowPriority,
+}: {
+  spaceID: RoomID
+  roomIDs: RoomID[]
+  muteLowPriority: boolean
+}) {
   const name = useChat(s => s.rooms[spaceID]?.meta.name)
+  const { count, level } = useChat(useShallow(s => sectionUnread(s, roomIDs, muteLowPriority)))
   return (
-    <div className="space-section-header flex h-full items-end truncate px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-      {name ?? spaceID}
+    <div className="space-section-header flex h-full items-end gap-1.5 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+      <span className="truncate">{name ?? spaceID}</span>
+      {count > 0 && <UnreadBadge count={count} level={level} />}
     </div>
   )
 })
@@ -208,7 +241,19 @@ function useSectionPins(rows: RoomListRow[], roomRowHeight: number, scrollRef: R
 }
 
 /** A stack of sub-space headers held at the top or bottom of the list while their rooms are out of view. */
-function PinnedHeaders({ spaceIDs, edge, onJump }: { spaceIDs: RoomID[]; edge: 'top' | 'bottom'; onJump: (spaceID: RoomID) => void }) {
+function PinnedHeaders({
+  spaceIDs,
+  sectionRooms,
+  muteLowPriority,
+  edge,
+  onJump,
+}: {
+  spaceIDs: RoomID[]
+  sectionRooms: Map<RoomID, RoomID[]>
+  muteLowPriority: boolean
+  edge: 'top' | 'bottom'
+  onJump: (spaceID: RoomID) => void
+}) {
   if (!spaceIDs.length) return null
   return (
     <div
@@ -224,7 +269,7 @@ function PinnedHeaders({ spaceIDs, edge, onJump }: { spaceIDs: RoomID[]; edge: '
           style={{ height: SECTION_HEADER_HEIGHT }}
           onClick={() => onJump(spaceID)}
         >
-          <SectionHeader spaceID={spaceID} />
+          <SectionHeader spaceID={spaceID} roomIDs={sectionRooms.get(spaceID) ?? NO_ROOMS} muteLowPriority={muteLowPriority} />
         </button>
       ))}
     </div>
@@ -282,6 +327,17 @@ function RoomList({ spaceID }: { spaceID: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const roomRowHeight = compact ? COMPACT_ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT
   const pins = useSectionPins(rows, roomRowHeight, scrollRef)
+  // The rooms listed under each section header, for the header's own unread badge. A room shown in
+  // one section only belongs to that one, so this follows the rows rather than the space edges.
+  const sectionRooms = useMemo(() => {
+    const map = new Map<RoomID, RoomID[]>()
+    let current: RoomID[] | undefined
+    for (const row of rows) {
+      if (row.startsWith('h:')) map.set(row.slice(2), (current = []))
+      else current?.push(row.slice(2))
+    }
+    return map
+  }, [rows])
   // Scroll a section's header to where it sits in the top stack, so its rooms follow right below.
   const jumpToSection = (target: RoomID) => {
     const index = pins.sections.findIndex(section => section.spaceID === target)
@@ -314,9 +370,17 @@ function RoomList({ spaceID }: { spaceID: string }) {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <PinnedHeaders spaceIDs={pins.sections.slice(0, pins.top).map(s => s.spaceID)} edge="top" onJump={jumpToSection} />
+      <PinnedHeaders
+        spaceIDs={pins.sections.slice(0, pins.top).map(s => s.spaceID)}
+        sectionRooms={sectionRooms}
+        muteLowPriority={muteLowPriority}
+        edge="top"
+        onJump={jumpToSection}
+      />
       <PinnedHeaders
         spaceIDs={pins.sections.slice(pins.sections.length - pins.bottom).map(s => s.spaceID)}
+        sectionRooms={sectionRooms}
+        muteLowPriority={muteLowPriority}
         edge="bottom"
         onJump={jumpToSection}
       />
@@ -332,7 +396,7 @@ function RoomList({ spaceID }: { spaceID: string }) {
                 style={{ height: item.size, transform: `translateY(${item.start}px)` }}
               >
                 {row.startsWith('h:') ? (
-                  <SectionHeader spaceID={id} />
+                  <SectionHeader spaceID={id} roomIDs={sectionRooms.get(id) ?? NO_ROOMS} muteLowPriority={muteLowPriority} />
                 ) : (
                   <RoomListItem roomID={id} active={id === activeRoomID} compact={compact} muteLowPriority={muteLowPriority} />
                 )}
