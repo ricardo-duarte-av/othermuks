@@ -1,6 +1,7 @@
 // Getting into rooms: pending invites, joining by ID or alias, and knocking when a room only takes
 // requests. gomuks keeps invites out of the room list (they have no timeline yet), so they live in
 // their own state here until a sync turns one into a joined room or drops it.
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { client } from '@/api/client'
@@ -93,20 +94,24 @@ export function inviteDetails(invite: DBInvitedRoom, ownUserID: UserID | undefin
   return details
 }
 
+// inviteDetails builds a new object every call, so it must never run inside a store selector: the
+// snapshot would differ on every read and useSyncExternalStore would re-render without end. Select
+// the raw invite rows, whose identity the store keeps until a sync changes them, and derive after.
+
 /** Pending invites, newest first. */
 export function useInvites(): InviteDetails[] {
   const ownUserID = useChat(selectOwnUserID)
-  return useChat(
-    useShallow(s => s.invites.map(invite => inviteDetails(invite, ownUserID)).sort((a, b) => b.createdAt - a.createdAt)),
+  const invites = useChat(useShallow(s => s.invites))
+  return useMemo(
+    () => invites.map(invite => inviteDetails(invite, ownUserID)).sort((a, b) => b.createdAt - a.createdAt),
+    [invites, ownUserID],
   )
 }
 
 export function useInvite(roomID: RoomID | null): InviteDetails | undefined {
   const ownUserID = useChat(selectOwnUserID)
-  return useChat(s => {
-    const invite = roomID ? s.invites.find(i => i.room_id === roomID) : undefined
-    return invite && inviteDetails(invite, ownUserID)
-  })
+  const invite = useChat(s => (roomID ? s.invites.find(i => i.room_id === roomID) : undefined))
+  return useMemo(() => invite && inviteDetails(invite, ownUserID), [invite, ownUserID])
 }
 
 /** Accepts an invite and opens the room once the join lands in a sync. */
