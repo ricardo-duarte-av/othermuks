@@ -57,6 +57,7 @@ import {
   isFailedSend,
   isMessageLike,
   isPendingEvent,
+  isRuleMessage,
   mentionsUser,
   previewText,
   type TimelineEvent,
@@ -121,6 +122,8 @@ export const TimelineRow = memo(function TimelineRow({ roomID, rowid, compact, n
         <GomuksNoticeRow roomID={roomID} evt={evt} compact={compact} />
       ) : hasNoRenderer(evt) ? (
         <HiddenRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
+      ) : isRuleMessage(evt) ? (
+        <RuleRow roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} readers={readers} />
       ) : isMessageLike(evt) ? (
         <MessageRow roomID={roomID} evt={evt} compact={compact} own={own} mention={mention} threadRoot={threadRoot} readers={readers} />
       ) : (
@@ -488,6 +491,37 @@ function HiddenRow({ roomID, evt, own, threadRoot, readers }: StateRowProps) {
       <div className="w-10 shrink-0" />
       <div className="min-w-0 flex-1 break-words leading-6">
         <code className="rounded bg-[var(--code-bg)] px-1 py-0.5 font-mono text-[11px]">{`{ "type": ${JSON.stringify(evt.type)} }`}</code>
+      </div>
+      <time title={formatFull(evt.timestamp)} className="invisible shrink-0 pt-1 leading-4 tabular-nums group-hover:visible">
+        {formatTime(evt.timestamp)}
+      </time>
+      {readers && readers.length > 0 && (
+        <div className="flex shrink-0 self-end pb-0.5">
+          <ReadReceipts roomID={roomID} rowid={evt.rowid} readers={readers} />
+        </div>
+      )}
+      {!isPendingEvent(evt) && <MessageActions roomID={roomID} evt={evt} own={own} threadRoot={threadRoot} hasEdits={false} />}
+    </div>
+  )
+}
+
+/**
+ * A message that is only a horizontal rule (bots use one between posts): drawn as a divider across
+ * the timeline rather than a card, with the usual hover time and actions.
+ */
+function RuleRow({ roomID, evt, own, threadRoot, readers }: StateRowProps) {
+  const highlighted = useUI(s => s.highlight?.rowid === evt.rowid)
+
+  return (
+    <div
+      className="state-event group relative flex items-start gap-3 px-4 py-0.5 text-xs text-muted"
+      data-rowid={evt.rowid}
+      data-highlight={highlighted || undefined}
+    >
+      <div className="w-10 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <span role="separator" className="my-2.5 block h-px bg-border" />
+        {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
       </div>
       <time title={formatFull(evt.timestamp)} className="invisible shrink-0 pt-1 leading-4 tabular-nums group-hover:visible">
         {formatTime(evt.timestamp)}

@@ -89,6 +89,24 @@ export function isMessageLike(evt: TimelineEvent): boolean {
   return evt.type === 'm.room.message' || evt.type === 'm.sticker' || evt.type === 'm.room.encrypted'
 }
 
+/** Nothing but rules and line breaks, and at least one rule. */
+const RULES_ONLY = /^(?:\s|<br\s*\/?>|<hr\s*\/?>)*<hr\s*\/?>(?:\s|<br\s*\/?>|<hr\s*\/?>)*$/i
+/** A plaintext rule: a run of three or more of the same divider character. */
+const PLAINTEXT_RULE = /^\s*([-_=*])\1{2,}\s*$/
+
+/**
+ * A message that is nothing but a horizontal rule. Bots send one to separate their posts, so it's
+ * drawn as a divider spanning the timeline instead of a card holding a single line (see RuleRow).
+ * An edited message keeps its card: the rule is no longer all there is to it.
+ */
+export function isRuleMessage(evt: TimelineEvent): boolean {
+  if (evt.type !== 'm.room.message' || evt.redacted_by || evt.last_edit_rowid) return false
+  const content = evt.content as unknown as MessageEventContent
+  if (content.msgtype !== 'm.text' && content.msgtype !== 'm.notice') return false
+  const html = evt.local_content?.sanitized_html ?? (content.format === 'org.matrix.custom.html' ? content.formatted_body : undefined)
+  return html !== undefined ? RULES_ONLY.test(html) : PLAINTEXT_RULE.test(content.body ?? '')
+}
+
 /**
  * Whether this event names the local user in m.mentions. The push-rule verdict (unread_type) can't be
  * used for this: it highlights every message in a DM, so a one-to-one room would strobe end to end.
@@ -126,6 +144,11 @@ const UNREDACTABLE_TYPES = new Set(['m.room.power_levels', 'm.room.create', 'm.r
 export function hasNoRenderer(evt: TimelineEvent): boolean {
   if (evt.relation_type === 'm.replace') return true
   return !isMessageLike(evt) && !(evt.state_key !== undefined && STATE_TYPES.has(evt.type))
+}
+
+/** Only real messages group under one avatar: an edit shown as a hidden event, or a rule, breaks the run. */
+export function isGroupable(evt: TimelineEvent): boolean {
+  return isMessageLike(evt) && !hasNoRenderer(evt) && !isRuleMessage(evt)
 }
 
 /** A member event that changes nothing: it has a renderer, but nothing worth saying (gomuks's rule). */

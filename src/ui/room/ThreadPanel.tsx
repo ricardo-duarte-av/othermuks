@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { EventID, EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { fetchEvent, loadThreadPage, useChat } from '@/store/chat'
-import { GROUP_WINDOW, isMessageLike, type TimelineEvent } from '@/store/events'
+import { GROUP_WINDOW, isGroupable, type TimelineEvent } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
@@ -62,7 +62,7 @@ export function ThreadView({ roomID, rootID }: { roomID: RoomID; rootID: EventID
       const evt = events[rowid]
       const dayChange = !!prev && !!evt && !isSameDay(prev.timestamp, evt.timestamp)
       const compact =
-        !!prev && !!evt && !dayChange && isMessageLike(prev) && prev.sender === evt.sender && evt.timestamp - prev.timestamp < GROUP_WINDOW
+        !!prev && !!evt && !dayChange && isGroupable(prev) && prev.sender === evt.sender && evt.timestamp - prev.timestamp < GROUP_WINDOW
       prev = evt
       return { rowid, compact, newDay: dayChange && showDates }
     })
