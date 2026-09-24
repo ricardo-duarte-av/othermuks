@@ -343,7 +343,9 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
           </span>
         </div>
       )}
-      <div
+      {/* layoutScroll: receipts animate their layout, and without it every scroll reads as movement. */}
+      <motion.div
+        layoutScroll
         ref={scrollRef}
         onScroll={onScroll}
         onWheel={cancelJump}
@@ -378,7 +380,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
             })}
           </div>
         </LayoutGroup>
-      </div>
+      </motion.div>
     </div>
   )
 }
