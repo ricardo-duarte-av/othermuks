@@ -502,7 +502,7 @@ export function requestMember(roomID: RoomID, userID: UserID) {
   // A room whose full member list is loading or loaded answers this from state; asking per user would
   // just duplicate that. What's left is rooms nothing has opened: search results, mentions, pins.
   if (room.membersLoaded) return
-  const key = `${roomID} ${userID}`
+  const key = `${roomID}\0${userID}`
   if (requestedMembers.has(key)) return
   requestedMembers.add(key)
   pendingMembers.push({ room_id: roomID, type: 'm.room.member', state_key: userID })
@@ -516,7 +516,7 @@ export function requestMember(roomID: RoomID, userID: UserID) {
     } catch (err) {
       // A miss is normal (the user may never have been in the room); the name just stays a fallback.
       console.warn('Failed to load member events', keys, err)
-      for (const { room_id, state_key } of keys) requestedMembers.delete(`${room_id} ${state_key}`)
+      for (const { room_id, state_key } of keys) requestedMembers.delete(`${room_id}\0${state_key}`)
     }
   })
 }
