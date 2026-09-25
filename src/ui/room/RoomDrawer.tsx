@@ -1,5 +1,5 @@
-import { Lock, LockOpen, Users, X } from 'lucide-react'
-import { Fragment, memo, useMemo } from 'react'
+import { Lock, LockOpen, Search, Users, X } from 'lucide-react'
+import { Fragment, memo, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { mediaURL } from '@/api/media'
 import type { RoomID, UserID } from '@/api/types'
@@ -58,7 +58,7 @@ function MemberList({ roomID }: { roomID: RoomID }) {
   )
 
   // Highest power level first, then alphabetically by display name.
-  const { sorted, roleCounts } = useMemo(() => {
+  const sorted = useMemo(() => {
     const entries = memberIDs.map((userID, i) => ({ userID, name: names[i], level: userPowerLevel(powerLevels, createEvent, userID) }))
     entries.sort(
       (a, b) =>
@@ -66,22 +66,41 @@ function MemberList({ roomID }: { roomID: RoomID }) {
         a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) ||
         a.userID.localeCompare(b.userID),
     )
+    return entries
+  }, [memberIDs, names, powerLevels, createEvent])
+
+  // The filter matches display names and user IDs alike, so either half of a row is searchable.
+  const [filter, setFilter] = useState('')
+  const { matched, roleCounts } = useMemo(() => {
+    const needle = filter.trim().toLowerCase()
+    const entries = needle ? sorted.filter(e => e.name.toLowerCase().includes(needle) || e.userID.toLowerCase().includes(needle)) : sorted
     const counts: Partial<Record<Role, number>> = {}
     for (const entry of entries) {
       const role = roleForLevel(entry.level)
       counts[role] = (counts[role] ?? 0) + 1
     }
-    return { sorted: entries, roleCounts: counts }
-  }, [memberIDs, names, powerLevels, createEvent])
+    return { matched: entries, roleCounts: counts }
+  }, [sorted, filter])
 
-  const visible = sorted.slice(0, MEMBER_RENDER_LIMIT)
+  const visible = matched.slice(0, MEMBER_RENDER_LIMIT)
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <h3 className="flex items-center gap-2 px-4 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted">
-        <Users size={13} /> People · {memberIDs.length}
+        <Users size={13} /> People · {filter.trim() ? `${matched.length}/${memberIDs.length}` : memberIDs.length}
         {!loaded && <Spinner size={12} />}
       </h3>
+      <div className="relative shrink-0 px-3 py-2">
+        <Search size={15} className="pointer-events-none absolute left-[22px] top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          type="search"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          placeholder="Filter people"
+          aria-label="Filter people"
+          className="w-full rounded-lg border border-border bg-[var(--timeline-bg)] py-1.5 pl-8 pr-3 text-sm outline-none placeholder:text-muted focus-visible:ring-2 focus-visible:ring-accent"
+        />
+      </div>
       <ul className="member-list flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3">
         {visible.map((entry, i) => {
           const role = roleForLevel(entry.level)
@@ -97,9 +116,10 @@ function MemberList({ roomID }: { roomID: RoomID }) {
             </Fragment>
           )
         })}
-        {sorted.length > MEMBER_RENDER_LIMIT && (
-          <li className="px-2.5 py-2 text-xs text-muted">and {sorted.length - MEMBER_RENDER_LIMIT} more</li>
+        {matched.length > MEMBER_RENDER_LIMIT && (
+          <li className="px-2.5 py-2 text-xs text-muted">and {matched.length - MEMBER_RENDER_LIMIT} more</li>
         )}
+        {!matched.length && filter.trim() && <li className="px-2.5 py-2 text-xs text-muted">Nobody here matches that.</li>}
       </ul>
     </section>
   )

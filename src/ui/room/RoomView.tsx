@@ -1,4 +1,4 @@
-import { AtSign, LayoutGrid, Lock, MessagesSquare, PanelRight, Pin, Search, Settings2, TextSearch, Upload, Video } from 'lucide-react'
+import { AtSign, LayoutGrid, Lock, MessagesSquare, Pin, Search, Settings2, TextSearch, Upload, Users, Video } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -72,12 +72,12 @@ function RoomHeader({ roomID }: { roomID: RoomID }) {
         <Settings2 size={17} />
       </IconButton>
       <IconButton
-        label="Room details"
+        label="People and room details"
         shortcut="Ctrl ."
         data-active={detailsVisible || undefined}
         onClick={() => useUI.setState({ drawerOpen: !detailsVisible, threadRoot: null, profileUserID: null, widgetView: null, roomTool: null })}
       >
-        <PanelRight size={17} />
+        <Users size={17} />
       </IconButton>
     </header>
   )
