@@ -591,9 +591,16 @@ export interface SendOptions {
   replyTo?: TimelineEvent
   edit?: TimelineEvent
   threadRoot?: EventID
+  /** Asks for a room-wide notification; only honoured while the body still carries the literal @room. */
+  mentionRoom?: boolean
 }
 
-export async function sendText(roomID: RoomID, text: string, { replyTo, edit, threadRoot }: SendOptions = {}) {
+/** The push rule that pings everyone looks for "@room" in the body, so the flag alone isn't enough. */
+function roomMention(text: string, mentionRoom: boolean | undefined): boolean {
+  return !!mentionRoom && text.includes('@room')
+}
+
+export async function sendText(roomID: RoomID, text: string, { replyTo, edit, threadRoot, mentionRoom }: SendOptions = {}) {
   let relates_to: RelatesTo | undefined
   if (edit) relates_to = { rel_type: 'm.replace', event_id: edit.event_id }
   else if (threadRoot) relates_to = threadRelation(threadRoot, replyTo)
@@ -604,7 +611,7 @@ export async function sendText(roomID: RoomID, text: string, { replyTo, edit, th
     room_id: roomID,
     text,
     relates_to,
-    mentions: { user_ids, room: false },
+    mentions: { user_ids, room: roomMention(text, mentionRoom) },
     url_previews: [],
   })
   if (evt) addLocalEcho(roomID, evt, !edit)
@@ -617,7 +624,7 @@ export async function sendText(roomID: RoomID, text: string, { replyTo, edit, th
 export async function sendMedia(
   roomID: RoomID,
   content: MessageEventContent,
-  { replyTo, threadRoot, caption }: Omit<SendOptions, 'edit'> & { caption?: string } = {},
+  { replyTo, threadRoot, caption, mentionRoom }: Omit<SendOptions, 'edit'> & { caption?: string } = {},
 ) {
   let relates_to: RelatesTo | undefined
   if (threadRoot) relates_to = threadRelation(threadRoot, replyTo)
@@ -629,7 +636,7 @@ export async function sendMedia(
     text: caption ?? '',
     base_content: content,
     relates_to,
-    mentions: { user_ids, room: false },
+    mentions: { user_ids, room: roomMention(caption ?? '', mentionRoom) },
     url_previews: [],
   })
   if (evt) addLocalEcho(roomID, evt, true)

@@ -129,6 +129,8 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '')
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(0)
+  // Typing @room only pings the room once this stays checked, so a quoted or accidental @room is harmless.
+  const [mentionRoom, setMentionRoom] = useState(true)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [stickersOpen, setStickersOpen] = useState(false)
   const [suggest, setSuggest] = useState<{ kind: 'emoji' | 'mention'; start: number; end: number; query: string } | null>(null)
@@ -217,8 +219,9 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
       await submitCommand(body, command)
       return
     }
-    const opts = { replyTo, edit: editing, threadRoot }
+    const opts = { replyTo, edit: editing, threadRoot, mentionRoom }
     setText('')
+    setMentionRoom(true)
     setError(null)
     setSuggest(null)
     if (replyTo || editing) useUI.setState({ replyTo: null, editing: null })
@@ -231,7 +234,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
       clearAttachments(attachKey)
       setUploading(n => n + files.length)
       try {
-        await uploadAndSend(roomID, files, { replyTo, threadRoot, caption: body || undefined })
+        await uploadAndSend(roomID, files, { replyTo, threadRoot, caption: body || undefined, mentionRoom })
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
         // Nothing was sent, or only some of it was: hand the files and the caption back.
@@ -479,6 +482,9 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
     }
   }
 
+  // Same literal the server's push rule looks for, so the offer shows exactly when a ping is possible.
+  const showRoomPing = text.includes('@room')
+
   const context = editing
     ? { icon: <Pencil size={13} />, label: 'Editing message' }
     : replyTo
@@ -553,10 +559,21 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           ))}
         </div>
       )}
+      {showRoomPing && (
+        <label
+          className={cn(
+            'composer-room-ping flex cursor-pointer items-center gap-2 border border-b-0 border-border bg-surface-2/40 px-3 py-1.5 text-xs text-muted',
+            context || attachments.length ? '' : 'rounded-t-xl',
+          )}
+        >
+          <input type="checkbox" checked={mentionRoom} onChange={e => setMentionRoom(e.target.checked)} className="accent-accent" />
+          Notify the whole room
+        </label>
+      )}
       <div
         className={cn(
           'composer flex items-end gap-1 border border-border px-1.5 py-1.5 shadow-sm transition-colors focus-within:border-accent/60',
-          context || attachments.length ? 'rounded-b-xl' : 'rounded-xl',
+          context || attachments.length || showRoomPing ? 'rounded-b-xl' : 'rounded-xl',
         )}
       >
         <IconButton label="Attach files" onClick={() => fileRef.current?.click()} disabled={uploading > 0 || !!editing}>
