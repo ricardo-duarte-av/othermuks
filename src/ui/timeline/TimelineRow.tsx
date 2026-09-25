@@ -518,9 +518,9 @@ function RuleRow({ roomID, evt, own, threadRoot, readers }: StateRowProps) {
       data-rowid={evt.rowid}
       data-highlight={highlighted || undefined}
     >
-      <div className="w-10 shrink-0" />
       <div className="min-w-0 flex-1">
-        <span role="separator" className="my-2.5 block h-px bg-border" />
+        {/* Thicker than the day separator, and reaching into the avatar gutter, so the two don't read alike. */}
+        <span role="separator" className="my-2.5 block h-0.5 rounded-full bg-muted/50" />
         {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
       </div>
       <time title={formatFull(evt.timestamp)} className="invisible shrink-0 pt-1 leading-4 tabular-nums group-hover:visible">
