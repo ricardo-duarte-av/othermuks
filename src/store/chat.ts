@@ -16,6 +16,7 @@ import type {
   EventRowID,
   EventType,
   ManualPaginationResponse,
+  MediaInfo,
   MemberEventContent,
   MessageEventContent,
   RawDBEvent,
@@ -27,7 +28,9 @@ import type {
   TimelineRowTuple,
   UserID,
 } from '@/api/types'
+import { log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
+import { describeMedia } from '@/lib/thumbnail'
 import { COMMAND_CONTENT_KEY, GOMUKS_SENDER } from './commands'
 import { isPendingEvent, normalizeEvent, threadRootOf, type TimelineEvent } from './events'
 import { getPreference } from './preferences'
@@ -696,6 +699,42 @@ export function dismissGomuksNotice(roomID: RoomID, rowid: EventRowID) {
   patchRoom(roomID, { pending: room.pending.filter(id => id !== rowid) })
 }
 
+/**
+ * Uploads a file and fills in what the backend doesn't: gomuks stores the bytes as given, so the
+ * media's own dimensions, duration, blurhash and thumbnail are the sender's job. Anything already
+ * set by the backend wins, and a thumbnail that fails to render or upload is dropped rather than
+ * failing the send.
+ */
+async function uploadMedia(file: File, encrypt: boolean): Promise<MessageEventContent> {
+  const [content, description] = await Promise.all([client.upload(file, encrypt), describeMedia(file)])
+  if (!description) return content
+  const info: MediaInfo = { ...content.info }
+  info.w ??= description.width
+  info.h ??= description.height
+  if (description.duration) info.duration ??= description.duration
+  if (description.blurhash) info['xyz.amorgan.blurhash'] ??= description.blurhash
+  const thumbnail = description.thumbnail
+  if (thumbnail && !info.thumbnail_url && !info.thumbnail_file) {
+    try {
+      const uploaded = await client.upload(thumbnail.file, encrypt)
+      // An encrypted room gets the keys back instead of a plain mxc:// URL.
+      if (uploaded.file) info.thumbnail_file = uploaded.file
+      else if (uploaded.url) info.thumbnail_url = uploaded.url
+      if (uploaded.file || uploaded.url) {
+        info.thumbnail_info = {
+          mimetype: thumbnail.file.type,
+          size: thumbnail.file.size,
+          w: thumbnail.width,
+          h: thumbnail.height,
+        }
+      }
+    } catch (err) {
+      log.warn(`uploading thumbnail for ${file.name} failed, sending without one: ${err}`)
+    }
+  }
+  return { ...content, info }
+}
+
 /** Uploads and sends each file. Only the first carries the caption, so it isn't repeated under every one. */
 export async function uploadAndSend(
   roomID: RoomID,
@@ -705,7 +744,7 @@ export async function uploadAndSend(
   const encrypt = !!get().rooms[roomID]?.meta.encryption_event
   let first = true
   for (const file of files) {
-    await sendMedia(roomID, await client.upload(file, encrypt), first ? options : { ...options, caption: undefined })
+    await sendMedia(roomID, await uploadMedia(file, encrypt), first ? options : { ...options, caption: undefined })
     first = false
   }
 }
