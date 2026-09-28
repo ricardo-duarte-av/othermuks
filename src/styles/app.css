@@ -449,11 +449,47 @@
     padding-left: 1.5em;
   }
 
-  .message-body h1,
-  .message-body h2,
-  .message-body h3 {
+  /* Tailwind's preflight drops the UA heading sizes, so the scale lives here. It stays in em so a
+     heading grows with the message font size, and it is gentler than the document scale: an <h1>
+     in a chat bubble is a loud line, not a page title. */
+  .message-body :is(h1, h2, h3, h4, h5, h6) {
     font-weight: 600;
-    margin-block: 0.25em;
+    line-height: 1.25;
+    margin-block: 0.5em 0.25em;
+  }
+
+  .message-body h1 {
+    font-size: 1.5em;
+  }
+
+  .message-body h2 {
+    font-size: 1.3em;
+  }
+
+  .message-body h3 {
+    font-size: 1.15em;
+  }
+
+  .message-body h4 {
+    font-size: 1.05em;
+  }
+
+  .message-body :is(h5, h6) {
+    font-size: 1em;
+  }
+
+  .message-body h6 {
+    color: var(--muted);
+  }
+
+  /* A message that is only a heading shouldn't push the bubble open. The extra selector is the
+     display:contents wrapper TextBody puts the sanitized HTML in, which sits between the two. */
+  :is(.message-body, .message-body > .contents) > :is(h1, h2, h3, h4, h5, h6):first-child {
+    margin-block-start: 0;
+  }
+
+  :is(.message-body, .message-body > .contents) > :is(h1, h2, h3, h4, h5, h6):last-child {
+    margin-block-end: 0;
   }
 
   /* Inline images in formatted bodies. gomuks replaces their size attributes with classes; html.ts
@@ -589,6 +625,12 @@
 
   .reply-preview .message-body p + p {
     margin-top: 0.25em;
+  }
+
+  /* A preview is a quoted glance at the message, so headings only keep their weight there. */
+  .reply-preview .message-body :is(h1, h2, h3, h4, h5, h6) {
+    font-size: 1em;
+    margin-block: 0.25em;
   }
 }
 
