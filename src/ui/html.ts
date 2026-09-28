@@ -5,6 +5,7 @@
 import DOMPurify from 'dompurify'
 import { gomuksMediaURL, isGomuksMediaURL, mediaURL } from '@/api/media'
 import { parseMatrixURI } from '@/lib/matrixURI'
+import { MATH_TAG } from './math'
 
 const purify = DOMPurify(window)
 const RELATIVE_GOMUKS_MEDIA = /^\/?_gomuks\/(media\/.+)$/
@@ -158,7 +159,9 @@ export function sanitizeHTML(html: string, formattedBody?: string): string {
     currentHints = hints
     try {
       const fragment = purify.sanitize(html, {
-        ADD_ATTR: ['target'],
+        // hicli-math carries the LaTeX source gomuks parsed out; ui/math renders it from there.
+        ADD_TAGS: [MATH_TAG],
+        ADD_ATTR: ['target', 'latex', 'displaymode'],
         FORBID_TAGS: ['style', 'form', 'input'],
         RETURN_DOM_FRAGMENT: true,
       })

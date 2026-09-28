@@ -25,6 +25,7 @@
     "cmdk": "^1.1.1",
     "dompurify": "^3.4.15",
     "emojibase-data": "^17.0.0",
+    "katex": "^0.18.9",
     "lucide-react": "^1.46.0",
     "matrix-widget-api": "^1.19.0",
     "motion": "^13.3.0",
