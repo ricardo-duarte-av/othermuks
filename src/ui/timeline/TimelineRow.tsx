@@ -67,6 +67,7 @@ import { customEmojiShortcode } from '@/store/emoji'
 import { followRoomUpgrade } from '@/store/membership'
 import { useMember, useRoomPowerContext } from '@/store/hooks'
 import { useCanRedact } from '@/store/permissions'
+import { diffPowerLevels, powerLevelChangeCount, type PowerLevelChange, type PowerLevelsContent } from '@/store/power'
 import { moderationRights } from '@/store/userActions'
 import { setPinned, useCanPin, useIsPinned } from '@/store/pins'
 import { usePreference } from '@/store/preferences'
@@ -355,9 +356,83 @@ function MemberDescription({ evt, senderName, senderAvatar, subjectName }: Descr
   return <>{subject}'s membership changed</>
 }
 
+/** A changed user in a power level event, named as the room knows them. */
+function PowerLevelUser({ roomID, userID }: { roomID: RoomID; userID: UserID }) {
+  const member = useMember(roomID, userID)
+  const avatar = typeof member?.avatar_url === 'string' ? (member.avatar_url as ContentURI) : undefined
+  return <UserLink userID={userID} name={displayNameOf(userID, member)} avatar={avatar} />
+}
+
+const levelText = (level: number | undefined) => (level === undefined ? 'default' : String(level))
+
+function LevelChange({ from, to }: PowerLevelChange) {
+  return (
+    <span className="tabular-nums">
+      {levelText(from)} → <Quoted>{levelText(to)}</Quoted>
+    </span>
+  )
+}
+
+/**
+ * A power level change, told as what moved: one user's level fits in the sentence; anything more is
+ * counted, with the list a click away, since a room's first power levels or a lockdown can touch dozens.
+ */
+function PowerLevelsDescription({ evt, sender }: { evt: TimelineEvent; sender: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const prev = evt.unsigned.prev_content as PowerLevelsContent | undefined
+  const diff = diffPowerLevels(prev, evt.content as PowerLevelsContent)
+  const count = powerLevelChangeCount(diff)
+
+  if (prev && count === 1 && diff.users.length === 1) {
+    const { userID, from, to } = diff.users[0]
+    return (
+      <>
+        {sender} changed <PowerLevelUser roomID={evt.room_id} userID={userID} />
+        's power level from <span className="tabular-nums">{from}</span> to <Quoted>{to}</Quoted>
+      </>
+    )
+  }
+  if (count === 0) return <>{sender} sent the power levels unchanged</>
+  return (
+    <>
+      {sender} {prev ? `changed ${count === 1 ? 'a power level' : `${count} power levels`}` : 'set the power levels'}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="ml-2 rounded-md border border-border px-1.5 py-0.5 align-middle text-[11px] font-medium transition-colors hover:bg-hover"
+      >
+        {open ? 'Hide' : 'Show'}
+      </button>
+      {open && (
+        <ul className="power-level-changes mt-0.5 mb-1 space-y-0.5">
+          {diff.settings.map(change => (
+            <li key={change.label}>
+              {change.label}: <LevelChange from={change.from} to={change.to} />
+            </li>
+          ))}
+          {diff.users.map(change => (
+            <li key={change.userID}>
+              <PowerLevelUser roomID={evt.room_id} userID={change.userID} />: <LevelChange from={change.from} to={change.to} />
+            </li>
+          ))}
+          {diff.events.map(change => (
+            <li key={change.eventType}>
+              <code className="font-mono text-[11px]">{change.eventType}</code>: <LevelChange from={change.from} to={change.to} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
 function StateDescription({ evt, senderName, senderAvatar, subjectName }: DescriptionProps) {
   if (evt.type === 'm.room.member') {
     return <MemberDescription evt={evt} senderName={senderName} senderAvatar={senderAvatar} subjectName={subjectName} />
+  }
+  if (evt.type === 'm.room.power_levels') {
+    return <PowerLevelsDescription evt={evt} sender={<UserLink userID={evt.sender} name={senderName} avatar={senderAvatar} />} />
   }
   const [before, after = ''] = describeStateEvent(evt, SENDER_MARK, subjectName).split(SENDER_MARK)
   const roomAvatar = evt.type === 'm.room.avatar' && typeof evt.content.url === 'string' ? (evt.content.url as ContentURI) : undefined

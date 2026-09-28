@@ -1,4 +1,5 @@
 import type { EventID, MemberEventContent, MessageEventContent, RawDBEvent, RelatesTo, UserID } from '@/api/types'
+import { diffPowerLevels, powerLevelChangeCount, type PowerLevelsContent } from './power'
 
 /** A DB event with decrypted content (if any) moved into type/content. */
 export interface TimelineEvent extends RawDBEvent {
@@ -77,6 +78,7 @@ const STATE_TYPES = new Set([
   'm.room.create',
   'm.room.tombstone',
   'm.room.pinned_events',
+  'm.room.power_levels',
 ])
 
 const eventIDList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [])
@@ -138,8 +140,8 @@ const UNREDACTABLE_TYPES = new Set(['m.room.power_levels', 'm.room.create', 'm.r
 
 /**
  * Events othermuks has no renderer for: an edit (folded into its target), a reaction, a redaction, a
- * server ACL, a power level change, a custom type. They show as their raw type, like gomuks web's
- * HiddenEvent, rather than not at all.
+ * server ACL, a custom type. They show as their raw type, like gomuks web's HiddenEvent, rather than
+ * not at all.
  */
 export function hasNoRenderer(evt: TimelineEvent): boolean {
   if (evt.relation_type === 'm.replace') return true
@@ -238,6 +240,18 @@ export function describeStateEvent(evt: TimelineEvent, senderName: string, targe
       return typeof content.body === 'string' && content.body.trim()
         ? `${senderName} upgraded this room: “${content.body.trim()}”`
         : `${senderName} upgraded this room`
+    case 'm.room.power_levels': {
+      const prev = evt.unsigned.prev_content as PowerLevelsContent | undefined
+      if (!prev) return `${senderName} set the power levels`
+      const diff = diffPowerLevels(prev, content as PowerLevelsContent)
+      const count = powerLevelChangeCount(diff)
+      if (count === 1 && diff.users.length === 1) {
+        const { userID, from, to } = diff.users[0]
+        return `${senderName} changed ${fallbackDisplayName(userID)}'s power level from ${from} to ${to}`
+      }
+      if (count === 0) return `${senderName} sent the power levels unchanged`
+      return `${senderName} changed ${count === 1 ? 'a power level' : `${count} power levels`}`
+    }
     case 'm.room.pinned_events': {
       const now = eventIDList(content.pinned)
       const before = eventIDList(evt.unsigned.prev_content?.pinned)
