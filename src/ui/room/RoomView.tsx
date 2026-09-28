@@ -1,4 +1,4 @@
-import { AtSign, LayoutGrid, Lock, MessagesSquare, Pin, Search, Settings2, TextSearch, Upload, Users, Video } from 'lucide-react'
+import { ArrowRight, AtSign, LayoutGrid, Lock, MessagesSquare, Pin, Search, Settings2, TextSearch, Upload, Users, Video } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -8,12 +8,13 @@ import { attachmentKey, stageAttachments } from '@/store/attachments'
 import { loadRoomState, selectOwnUserID, useChat } from '@/store/chat'
 import { displayNameOf } from '@/store/events'
 import { useMember } from '@/store/hooks'
+import { followRoomUpgrade } from '@/store/membership'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePinnedEvents } from '@/store/pins'
-import { closeRoomTool, closeWidgets, openRoomTool, openSettings, openWidget, openWidgetList, useUI, type RoomTool } from '@/store/ui'
+import { closeRoomTool, closeWidgets, openRoomTool, openSettings, openWidget, openWidgetList, showToast, useUI, type RoomTool } from '@/store/ui'
 import { activeCallMembers, CALL_ROOM_TYPE, CALL_WIDGET_ID } from '@/store/widgets'
 import { LinkifiedText } from '@/ui/LinkifiedText'
-import { Avatar, IconButton } from '@/ui/primitives'
+import { Avatar, IconButton, Spinner } from '@/ui/primitives'
 import { ContextTimeline } from '@/ui/timeline/ContextTimeline'
 import { Timeline } from '@/ui/timeline/Timeline'
 import { Composer } from './Composer'
@@ -110,6 +111,45 @@ function PinsButton({ roomID }: { roomID: RoomID }) {
         </span>
       )}
     </IconButton>
+  )
+}
+
+/**
+ * An upgraded room is closed for business: whatever is said here goes unread, so the composer gives way
+ * to the door into the room that replaced it.
+ */
+function UpgradedRoomBanner({ roomID, replacement }: { roomID: RoomID; replacement: RoomID }) {
+  const upgrader = useChat(s => {
+    const rowid = s.rooms[roomID]?.state['m.room.tombstone']?.['']
+    return rowid === undefined ? undefined : s.events[rowid]?.sender
+  })
+  const joined = useChat(s => !!s.rooms[replacement])
+  const [busy, setBusy] = useState(false)
+
+  const go = async () => {
+    setBusy(true)
+    try {
+      await followRoomUpgrade(roomID, replacement, upgrader ?? roomID)
+    } catch (err) {
+      showToast(`Couldn't join the new room: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="upgraded-room-banner flex shrink-0 items-center gap-3 border-t border-border bg-surface px-4 py-3 text-sm">
+      <span className="min-w-0 flex-1 text-muted">This room has been replaced and is no longer active.</span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void go()}
+        title={replacement}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1 text-xs font-medium text-accent-fg transition hover:brightness-110 disabled:opacity-60"
+      >
+        {busy ? <Spinner size={13} /> : <ArrowRight size={14} />} {joined ? 'Go to new room' : 'Join new room'}
+      </button>
+    </div>
   )
 }
 
@@ -211,6 +251,7 @@ export function RoomView({ roomID }: { roomID: RoomID }) {
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const showContext = useEventContext(s => s.view?.roomID === roomID)
+  const replacement = useChat(s => s.rooms[roomID]?.meta.tombstone?.replacement_room)
 
   useEffect(() => {
     void loadRoomState(roomID)
@@ -219,7 +260,8 @@ export function RoomView({ roomID }: { roomID: RoomID }) {
     if (view && view.roomID !== roomID) closeEventContext()
   }, [roomID])
 
-  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+  // With no composer to stage them in, files dropped on an upgraded room would go nowhere.
+  const hasFiles = (e: DragEvent) => !replacement && e.dataTransfer.types.includes('Files')
 
   return (
     <div
@@ -253,7 +295,7 @@ export function RoomView({ roomID }: { roomID: RoomID }) {
         <AnimatePresence>{showContext && <ContextTimeline key="event-context" roomID={roomID} />}</AnimatePresence>
       </div>
       <TypingIndicator roomID={roomID} />
-      <Composer roomID={roomID} />
+      {replacement ? <UpgradedRoomBanner roomID={roomID} replacement={replacement} /> : <Composer roomID={roomID} />}
       <AnimatePresence>
         {dragging && (
           <motion.div

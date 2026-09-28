@@ -235,7 +235,9 @@ export function describeStateEvent(evt: TimelineEvent, senderName: string, targe
     case 'm.room.create':
       return `${senderName} created the room`
     case 'm.room.tombstone':
-      return `${senderName} upgraded this room`
+      return typeof content.body === 'string' && content.body.trim()
+        ? `${senderName} upgraded this room: “${content.body.trim()}”`
+        : `${senderName} upgraded this room`
     case 'm.room.pinned_events': {
       const now = eventIDList(content.pinned)
       const before = eventIDList(evt.unsigned.prev_content?.pinned)

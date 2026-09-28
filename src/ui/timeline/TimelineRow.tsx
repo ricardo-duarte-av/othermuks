@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import {
+  ArrowRight,
   Code,
   Copy,
   Ellipsis,
@@ -63,6 +64,7 @@ import {
   type TimelineEvent,
 } from '@/store/events'
 import { customEmojiShortcode } from '@/store/emoji'
+import { followRoomUpgrade } from '@/store/membership'
 import { useMember, useRoomPowerContext } from '@/store/hooks'
 import { useCanRedact } from '@/store/permissions'
 import { moderationRights } from '@/store/userActions'
@@ -428,6 +430,42 @@ function KnockActions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
   )
 }
 
+/**
+ * The room was upgraded: offer the way to its replacement, opened if we're already there, joined if not.
+ * Shown on every tombstone, not just the current one, since an older one still points somewhere real.
+ */
+function TombstoneActions({ roomID, evt }: { roomID: RoomID; evt: TimelineEvent }) {
+  const replacement = typeof evt.content.replacement_room === 'string' ? evt.content.replacement_room : undefined
+  const joined = useChat(s => !!replacement && !!s.rooms[replacement])
+  const [busy, setBusy] = useState(false)
+  if (!replacement) return null
+
+  const go = async () => {
+    setBusy(true)
+    try {
+      await followRoomUpgrade(roomID, replacement, evt.sender)
+    } catch (err) {
+      showToast(`Couldn't join the new room: ${errorText(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span className="tombstone-actions ml-2 inline-flex align-middle">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void go()}
+        title={replacement}
+        className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-hover disabled:opacity-60"
+      >
+        {busy ? <Spinner size={11} /> : <ArrowRight size={11} />} {joined ? 'Go to new room' : 'Join new room'}
+      </button>
+    </span>
+  )
+}
+
 interface StateRowProps {
   roomID: RoomID
   evt: TimelineEvent
@@ -459,6 +497,7 @@ function StateRow({ roomID, evt, own, threadRoot, readers }: StateRowProps) {
           subjectName={subjectName}
         />
         {evt.type === 'm.room.member' && evt.content.membership === 'knock' && <KnockActions roomID={roomID} evt={evt} />}
+        {evt.type === 'm.room.tombstone' && <TombstoneActions roomID={roomID} evt={evt} />}
         {evt.reactions && <Reactions roomID={roomID} evt={evt} />}
       </div>
       <time title={formatFull(evt.timestamp)} className="invisible shrink-0 pt-1 leading-4 tabular-nums group-hover:visible">

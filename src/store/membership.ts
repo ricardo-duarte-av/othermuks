@@ -203,3 +203,19 @@ export async function joinPreviewedRoom({ knock, reason }: { knock?: boolean; re
 useUI.subscribe((state, prev) => {
   if (state.activeRoomID !== prev.activeRoomID) closeRoomPreview()
 })
+
+/**
+ * Follows a room upgrade to the room that replaced it: opens it when we're already in, otherwise joins
+ * it. The replacement is only known by ID, which (since room v12) may carry no server name, so the
+ * upgrader's server is the one to ask, per the spec; the old room's is a fallback.
+ */
+export async function followRoomUpgrade(oldRoomID: RoomID, replacementRoom: RoomID, upgrader: UserID) {
+  if (useChat.getState().rooms[replacementRoom]) {
+    openWhenJoined(replacementRoom)
+    return
+  }
+  const servers = [upgrader, oldRoomID].flatMap(id => (id.includes(':') ? [id.slice(id.indexOf(':') + 1)] : []))
+  const via = [...new Set(servers)]
+  const { room_id } = await client.joinRoom(replacementRoom, { via })
+  openWhenJoined(room_id ?? replacementRoom)
+}
