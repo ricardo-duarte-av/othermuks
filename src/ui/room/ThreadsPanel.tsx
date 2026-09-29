@@ -6,7 +6,7 @@ import type { EventID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatRoomTime } from '@/lib/format'
 import { fetchEvent, useChat } from '@/store/chat'
-import { displayNameOf, previewText } from '@/store/events'
+import { previewText, shownSender } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { completeThread, useLatestReply, useRoomThreads, useThreadMentionsMe } from '@/store/threads'
 import { closeRoomTool, openThread } from '@/store/ui'
@@ -65,8 +65,9 @@ function ThreadItem({ roomID, rootID }: { roomID: RoomID; rootID: EventID }) {
     void completeThread(roomID, rootID)
   }, [roomID, rootID])
 
-  const rootName = root ? displayNameOf(root.sender, rootMember) : ''
-  const latestName = latest ? displayNameOf(latest.sender, latestMember) : ''
+  const rootShown = root && shownSender(root, rootMember)
+  const rootName = rootShown?.name ?? ''
+  const latestName = latest ? shownSender(latest, latestMember).name : ''
 
   return (
     <li>
@@ -79,7 +80,7 @@ function ThreadItem({ roomID, rootID }: { roomID: RoomID; rootID: EventID }) {
         )}
       >
         {root ? (
-          <Avatar mxc={rootMember?.avatar_url} id={root.sender} name={rootName} size={28} />
+          <Avatar mxc={rootShown?.avatar} encrypted={rootShown?.avatarEncrypted} id={rootShown?.colorID ?? root.sender} name={rootName} size={28} />
         ) : (
           <span className="size-7 shrink-0 rounded-full bg-surface-2" />
         )}

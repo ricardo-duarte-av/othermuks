@@ -9,8 +9,8 @@ import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/c
 import { runCommand } from '@/store/commandRunner'
 import { AVATAR_COMMANDS, resolveInput, suggestCommands, type CommandSuggestion, type ResolvedInput } from '@/store/commands'
 import { customEmojiMarkdown, recordEmojiUse, sendSticker, type CustomEmoji } from '@/store/emoji'
-import { displayContent, hasNoRenderer, isMessageLike, isPendingEvent, isRenderable } from '@/store/events'
-import { useDisplayName } from '@/store/hooks'
+import { displayContent, hasNoRenderer, isMessageLike, isPendingEvent, isRenderable, shownSender } from '@/store/events'
+import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
@@ -117,7 +117,8 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
   const replyTo = useChat(s => (replyToRowID == null ? undefined : s.events[replyToRowID]))
   const editing = useChat(s => (editingRowID == null ? undefined : s.events[editingRowID]))
   const roomName = useChat(s => s.rooms[roomID]?.meta.name)
-  const replyName = useDisplayName(roomID, replyTo?.sender)
+  const replyMember = useMember(roomID, replyTo?.sender)
+  const replyName = replyTo ? shownSender(replyTo, replyMember).name : ''
 
   const sendTyping = usePreference('send_typing_notifications', roomID)
   const ctrlEnterSend = usePreference('ctrl_enter_send', roomID)

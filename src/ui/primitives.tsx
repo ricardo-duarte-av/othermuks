@@ -12,10 +12,12 @@ interface AvatarProps {
   name?: string
   size?: number
   className?: string
+  /** An encrypted file's mxc (avatar_file), which gomuks decrypts. */
+  encrypted?: boolean
 }
 
-export const Avatar = memo(function Avatar({ mxc, id, name, size = 36, className }: AvatarProps) {
-  const url = avatarURL(mxc)
+export const Avatar = memo(function Avatar({ mxc, id, name, size = 36, className, encrypted }: AvatarProps) {
+  const url = avatarURL(mxc, encrypted)
   const [failedURL, setFailedURL] = useState<string>()
   const style = { width: size, height: size }
 

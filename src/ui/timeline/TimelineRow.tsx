@@ -61,6 +61,7 @@ import {
   isRuleMessage,
   mentionsUser,
   previewText,
+  shownSender,
   type TimelineEvent,
 } from '@/store/events'
 import { customEmojiShortcode } from '@/store/emoji'
@@ -671,7 +672,10 @@ function MessageRow({ roomID, evt, compact, own, mention, threadRoot, readers }:
   const member = useMember(roomID, evt.sender)
   const lastEdit = useChat(s => (evt.last_edit_rowid ? s.events[evt.last_edit_rowid] : undefined))
   const highlighted = useUI(s => s.highlight?.rowid === evt.rowid)
-  const name = displayNameOf(evt.sender, member)
+  const shown = shownSender(evt, member, lastEdit)
+  const name = shown.name
+  // A profile's name is the persona's, so the tooltip says whose account it came through.
+  const senderTitle = shown.profile ? `${shown.profile.id} via ${evt.sender}` : evt.sender
   const { content, localContent } = displayContent(evt, lastEdit)
   const relation = evt.content['m.relates_to'] as RelatesTo | undefined
   // Thread replies carry a fallback reply to the previous thread message; only explicit replies get a preview.
@@ -705,8 +709,8 @@ function MessageRow({ roomID, evt, compact, own, mention, threadRoot, readers }:
             {formatTime(evt.timestamp)}
           </time>
         ) : (
-          <ProfileButton userID={evt.sender} name={name} className="mt-0.5 h-10 rounded-full">
-            <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={40} />
+          <ProfileButton userID={evt.sender} name={name} title={senderTitle} className="mt-0.5 h-10 rounded-full">
+            <Avatar mxc={shown.avatar} encrypted={shown.avatarEncrypted} id={shown.colorID} name={name} size={40} />
           </ProfileButton>
         )}
       </div>
@@ -719,11 +723,20 @@ function MessageRow({ roomID, evt, compact, own, mention, threadRoot, readers }:
                 <ProfileButton
                   userID={evt.sender}
                   name={name}
+                  title={senderTitle}
                   className="sender-name min-w-0 truncate text-sm font-semibold hover:underline"
-                  style={{ color: userColor(evt.sender) }}
+                  style={{ color: userColor(shown.colorID) }}
                 >
                   {name}
                 </ProfileButton>
+                {shown.via && (
+                  <span className="sender-via min-w-0 shrink truncate text-xs text-muted">
+                    via{' '}
+                    <ProfileButton userID={evt.sender} name={shown.via} className="font-medium hover:underline" style={{ color: userColor(evt.sender) }}>
+                      {shown.via}
+                    </ProfileButton>
+                  </span>
+                )}
                 <time title={formatFull(evt.timestamp)} className="shrink-0 text-[11px] tabular-nums text-muted">
                   {formatTime(evt.timestamp)}
                 </time>
@@ -1166,8 +1179,9 @@ export function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; event
     )
   }
 
-  const name = displayNameOf(evt.sender, member)
-  const color = userColor(evt.sender)
+  const shown = shownSender(evt, member, lastEdit)
+  const name = shown.name
+  const color = userColor(shown.colorID)
   const jump = () => jumpToEvent(roomID, eventID)
   const interactive = {
     role: 'button',
@@ -1194,8 +1208,8 @@ export function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; event
         className="reply-preview reply-preview-small mb-0.5 flex min-w-0 cursor-pointer items-center gap-1.5 text-[13px] text-muted outline-none transition-colors hover:text-fg focus-visible:ring-2 focus-visible:ring-accent"
       >
         <Reply size={12} className="shrink-0 -scale-x-100" />
-        <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={14} />
-        <span className="shrink-0 font-medium" style={{ color }} title={evt.sender}>
+        <Avatar mxc={shown.avatar} encrypted={shown.avatarEncrypted} id={shown.colorID} name={name} size={14} />
+        <span className="shrink-0 font-medium" style={{ color }} title={shown.via ? `${name} via ${evt.sender}` : evt.sender}>
           {name}
         </span>
         <span className="min-w-0 truncate">{lastEdit && !evt.redacted_by ? (displayContent(evt, lastEdit).content.body ?? '') : previewText(evt)}</span>
@@ -1209,8 +1223,8 @@ export function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; event
       className="reply-preview my-1 flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border-l-2 bg-[var(--reply-bg)] py-1 pl-2.5 pr-3 text-[13px] outline-none transition-colors hover:bg-[var(--reply-hover-bg)] focus-visible:ring-2 focus-visible:ring-accent"
       style={{ borderColor: color }}
     >
-      <span className="flex min-w-0 items-center gap-1.5" title={evt.sender}>
-        <Avatar mxc={member?.avatar_url} id={evt.sender} name={name} size={16} />
+      <span className="flex min-w-0 items-center gap-1.5" title={shown.via ? `${name} via ${evt.sender}` : evt.sender}>
+        <Avatar mxc={shown.avatar} encrypted={shown.avatarEncrypted} id={shown.colorID} name={name} size={16} />
         <span className="truncate font-medium" style={{ color }}>
           {name}
         </span>

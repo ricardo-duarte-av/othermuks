@@ -1,4 +1,4 @@
-import type { EventID, MemberEventContent, MessageEventContent, RawDBEvent, RelatesTo, UserID } from '@/api/types'
+import type { ContentURI, EventID, MemberEventContent, MessageEventContent, RawDBEvent, RelatesTo, UserID } from '@/api/types'
 import { diffPowerLevels, powerLevelChangeCount, type PowerLevelsContent } from './power'
 
 /** A DB event with decrypted content (if any) moved into type/content. */
@@ -48,6 +48,75 @@ export function fallbackDisplayName(userID: UserID): string {
 export function displayNameOf(userID: UserID, member?: { displayname?: unknown }): string {
   const name = member?.displayname
   return typeof name === 'string' && name.trim() ? name : fallbackDisplayName(userID)
+}
+
+/** MSC4144's unstable field for a message sent under a per-message profile. */
+export const PER_MESSAGE_PROFILE_KEY = 'com.beeper.per_message_profile'
+
+/** A per-message profile (MSC4144): a name and avatar standing in for the sender's for one message. */
+export interface PerMessageProfile {
+  /** Opaque, scoped to the sender: the same ID from the same account is the same persona. */
+  id: string
+  displayname?: string
+  /** An empty string clears the avatar, rather than falling back to the sender's. */
+  avatar_url?: ContentURI
+  avatar_file?: { url: ContentURI }
+}
+
+/**
+ * The per-message profile a message was sent under, if any. An edit may change it, so the latest edit's
+ * new content wins. gomuks has already stripped the "Name: " fallback from the body.
+ */
+export function perMessageProfileOf(evt: TimelineEvent, lastEdit?: TimelineEvent): PerMessageProfile | undefined {
+  if (evt.type !== 'm.room.message' && evt.type !== 'm.sticker') return undefined
+  const content = (lastEdit?.content['m.new_content'] as Record<string, unknown> | undefined) ?? evt.content
+  const raw = content[PER_MESSAGE_PROFILE_KEY] as Record<string, unknown> | undefined
+  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !raw.id) return undefined
+  const file = raw.avatar_file as { url?: unknown } | undefined
+  return {
+    id: raw.id,
+    displayname: typeof raw.displayname === 'string' && raw.displayname.trim() ? raw.displayname : undefined,
+    avatar_url: typeof raw.avatar_url === 'string' ? raw.avatar_url : undefined,
+    avatar_file: typeof file?.url === 'string' && file.url.startsWith('mxc://') ? { url: file.url } : undefined,
+  }
+}
+
+/** Who a message appears to be from: its per-message profile over the sender's member profile. */
+export interface ShownSender {
+  name: string
+  avatar?: ContentURI
+  avatarEncrypted: boolean
+  /** Picks the name color and fallback avatar, so each persona of an account looks apart. */
+  colorID: string
+  /** The account's own name, shown alongside ("via …") whenever a profile puts another in its place. */
+  via?: string
+  profile?: PerMessageProfile
+}
+
+export function shownSender(evt: TimelineEvent, member: { displayname?: unknown; avatar_url?: unknown } | undefined, lastEdit?: TimelineEvent): ShownSender {
+  const realName = displayNameOf(evt.sender, member)
+  const memberAvatar = typeof member?.avatar_url === 'string' && member.avatar_url ? member.avatar_url : undefined
+  const profile = perMessageProfileOf(evt, lastEdit)
+  if (!profile) return { name: realName, avatar: memberAvatar, avatarEncrypted: false, colorID: evt.sender }
+  const name = profile.displayname ?? realName
+  let avatar = memberAvatar
+  let avatarEncrypted = false
+  if (profile.avatar_file) {
+    avatar = profile.avatar_file.url
+    avatarEncrypted = true
+  } else if (profile.avatar_url === '') {
+    avatar = undefined
+  } else if (profile.avatar_url?.startsWith('mxc://')) {
+    avatar = profile.avatar_url
+  }
+  // The spec requires a way to see who really sent it; a profile that only swaps the avatar keeps the
+  // real name in place, which already says so.
+  return { name, avatar, avatarEncrypted, colorID: profile.id, via: name !== realName ? realName : undefined, profile }
+}
+
+/** Two messages read as one author's run only when they share both the account and the persona. */
+export function sameAuthor(a: TimelineEvent, b: TimelineEvent): boolean {
+  return a.sender === b.sender && perMessageProfileOf(a)?.id === perMessageProfileOf(b)?.id
 }
 
 /** The event exactly as gomuks delivered it (encrypted type/content, with any decrypted_* fields alongside). */

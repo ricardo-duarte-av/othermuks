@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { EventRowID, RoomID, UserID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { latestReadEvent, loadOlder, markRoomRead, selectOwnUserID, useChat } from '@/store/chat'
-import { GROUP_WINDOW, isGroupable, isMessageLike, isRenderable, type TimelineEvent, type TimelineFilter } from '@/store/events'
+import { GROUP_WINDOW, isGroupable, isMessageLike, isRenderable, sameAuthor, type TimelineEvent, type TimelineFilter } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
@@ -165,7 +165,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
         !dayChange &&
         isGroupable(prev) &&
         isGroupable(evt) &&
-        prev.sender === evt.sender &&
+        sameAuthor(prev, evt) &&
         evt.timestamp - prev.timestamp < GROUP_WINDOW
       prev = evt
       return { rowid, compact, newDay: dayChange && showDates }

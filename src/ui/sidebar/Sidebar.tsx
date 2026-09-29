@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn'
 import { formatRoomTime } from '@/lib/format'
 import { markOnce } from '@/lib/perf'
 import { useChat, type ChatSnapshot } from '@/store/chat'
-import { fallbackDisplayName, isMessageLike, previewText } from '@/store/events'
+import { fallbackDisplayName, isMessageLike, perMessageProfileOf, previewText } from '@/store/events'
 import { useInvites } from '@/store/membership'
 import { usePreference, useRoomSort } from '@/store/preferences'
 import { FAVOURITE_TAG, isRoomMuted, LOW_PRIORITY_TAG, roomTagsOf } from '@/store/roomActions'
@@ -52,9 +52,12 @@ const RoomListItem = memo(function RoomListItem({ roomID, active, compact, muteL
     const rowid = showPreview ? s.rooms[roomID]?.meta.preview_event_rowid : undefined
     return rowid ? s.events[rowid] : undefined
   })
-  // Per-room display name from room state when known, otherwise the capitalized localpart.
+  // The message's per-message profile name, else the per-room display name from room state when
+  // known, otherwise the capitalized localpart.
   const senderName = useChat(s => {
     if (!preview) return undefined
+    const persona = perMessageProfileOf(preview)?.displayname
+    if (persona) return persona
     const rowid = s.rooms[roomID]?.state['m.room.member']?.[preview.sender]
     const name = rowid === undefined ? undefined : s.events[rowid]?.content.displayname
     return typeof name === 'string' && name ? name : fallbackDisplayName(preview.sender)

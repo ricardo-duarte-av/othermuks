@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { RoomID } from '@/api/types'
 import { isSameDay } from '@/lib/format'
 import { useChat } from '@/store/chat'
-import { GROUP_WINDOW, isGroupable, isMessageLike, isRenderable, type TimelineEvent } from '@/store/events'
+import { GROUP_WINDOW, isGroupable, isMessageLike, isRenderable, sameAuthor, type TimelineEvent } from '@/store/events'
 import { useIgnoredUsers } from '@/store/ignored'
 import { closeEventContext, useEventContext } from '@/store/navigation'
 import { usePreference, useTimelineFilter } from '@/store/preferences'
@@ -43,7 +43,7 @@ export function ContextTimeline({ roomID }: { roomID: RoomID }) {
         !dayChange &&
         isGroupable(prev) &&
         isGroupable(evt) &&
-        prev.sender === evt.sender &&
+        sameAuthor(prev, evt) &&
         evt.timestamp - prev.timestamp < GROUP_WINDOW
       prev = evt
       return [{ rowid, compact, newDay: dayChange && showDates }]
