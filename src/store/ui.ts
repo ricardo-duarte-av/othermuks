@@ -76,7 +76,7 @@ interface UIState {
   /** The room whose state explorer (/devtools) is open, optionally showing one state event. */
   stateExplorer: { roomID: RoomID; type?: string; stateKey?: string } | null
   /** Settings dialog, optionally showing the room scopes for a room. */
-  settings: { roomID: RoomID | null } | null
+  settings: { roomID: RoomID | null; section?: SettingsSection } | null
   /** Right panel widgets view: the room's widget list, or one widget (CALL_WIDGET_ID for Element Call). */
   widgetView: { mode: 'list' } | { mode: 'widget'; widgetID: string } | null
   /** Right panel tool view (sits above room details, below widgets). */
@@ -177,8 +177,10 @@ export function closeStateExplorer() {
   useUI.setState({ stateExplorer: null })
 }
 
-export function openSettings(roomID: RoomID | null = null) {
-  useUI.setState({ settings: { roomID } })
+export type SettingsSection = 'preferences' | 'profiles' | 'ignored'
+
+export function openSettings(roomID: RoomID | null = null, section?: SettingsSection) {
+  useUI.setState({ settings: { roomID, section } })
 }
 
 export function closeSettings() {

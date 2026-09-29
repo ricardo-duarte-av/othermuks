@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Cloud, Hash, LogOut, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
+import { Cloud, Drama, Hash, LogOut, Monitor, Palette, Search, UserCheck, UserX, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
@@ -19,13 +19,14 @@ import {
   type PreferenceValue,
 } from '@/store/preferences'
 import { requestLeaveRoom } from '@/store/roomActions'
-import { closeSettings, showToast, useUI } from '@/store/ui'
+import { closeSettings, showToast, useUI, type SettingsSection } from '@/store/ui'
 import { pushDeviceID, useWebPush, type WebPushStatus } from '@/store/webpush'
 import { clearRoomCache } from '@/store/cache'
 import { fallbackDisplayName } from '@/store/events'
 import { clearMediaCache } from '@/store/mediacache'
 import { setIgnored, useIgnoredUsers } from '@/store/ignored'
 import { Avatar, Spinner } from '@/ui/primitives'
+import { ProfilesPanel } from './ProfilesPanel'
 
 interface Column {
   context: PreferenceContext
@@ -137,8 +138,6 @@ function WebPushStatusRow({ columns }: { columns: number }) {
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-type Section = 'preferences' | 'ignored'
-
 /** Avatar plus two lines of text; the virtualizer needs one fixed height for every row. */
 const IGNORED_ROW_HEIGHT = 49
 
@@ -152,17 +151,17 @@ export function SettingsDialog() {
           aria-describedby={undefined}
           className="settings-dialog fixed left-1/2 top-1/2 z-50 flex h-[min(820px,90vh)] w-[min(1040px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface text-fg shadow-2xl outline-none"
         >
-          {settings && <SettingsBody initialRoomID={settings.roomID} />}
+          {settings && <SettingsBody initialRoomID={settings.roomID} initialSection={settings.section} />}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   )
 }
 
-function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
+function SettingsBody({ initialRoomID, initialSection }: { initialRoomID: RoomID | null; initialSection?: SettingsSection }) {
   const activeRoomID = useUI(s => s.activeRoomID)
   const roomID = initialRoomID ?? activeRoomID
-  const [section, setSection] = useState<Section>('preferences')
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'preferences')
   const ignoredCount = useIgnoredUsers().size
 
   return (
@@ -172,6 +171,10 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
         <div role="tablist" aria-label="Section" className="flex min-w-0 gap-1 rounded-lg bg-bg p-0.5">
           <TabButton selected={section === 'preferences'} onClick={() => setSection('preferences')}>
             Preferences
+          </TabButton>
+          <TabButton selected={section === 'profiles'} onClick={() => setSection('profiles')}>
+            <Drama size={12} className="shrink-0" />
+            Profiles
           </TabButton>
           <TabButton selected={section === 'ignored'} onClick={() => setSection('ignored')}>
             <UserX size={12} className="shrink-0" />
@@ -194,7 +197,7 @@ function SettingsBody({ initialRoomID }: { initialRoomID: RoomID | null }) {
         </Dialog.Close>
       </header>
 
-      {section === 'ignored' ? <IgnoredUsersPanel /> : <PreferencesSection roomID={roomID} />}
+      {section === 'ignored' ? <IgnoredUsersPanel /> : section === 'profiles' ? <ProfilesPanel /> : <PreferencesSection roomID={roomID} />}
     </>
   )
 }

@@ -22,6 +22,7 @@ import { IconButton, Spinner } from '@/ui/primitives'
 import { ReplyPreview } from '@/ui/timeline/TimelineRow'
 import { CommandHint, CommandSuggestions, useRoomCommands } from './CommandSuggestions'
 import { mentionMarkdown, MentionSuggestions, useMemberSuggestions, type MemberSuggestion } from './MentionSuggestions'
+import { ProfilePicker } from './ProfilePicker'
 
 /** A staged file: images and videos show themselves, anything else shows its name. */
 function AttachmentPreview({ file, onRemove }: { file: File; onRemove: () => void }) {
@@ -577,6 +578,7 @@ export function Composer({ roomID, threadRoot }: ComposerProps) {
           context || attachments.length || showRoomPing ? 'rounded-b-xl' : 'rounded-xl',
         )}
       >
+        <ProfilePicker roomID={roomID} text={text} />
         <IconButton label="Attach files" onClick={() => fileRef.current?.click()} disabled={uploading > 0 || !!editing}>
           <Paperclip size={17} />
         </IconButton>
