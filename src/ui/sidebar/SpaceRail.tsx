@@ -1,6 +1,6 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
-import { House, MessageCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { ArrowUpDown, House, MessageCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
@@ -9,6 +9,7 @@ import { DM_SPACE, HOME_SPACE, spaceUnread } from '@/store/spaces'
 import { setActiveSpace, useUI } from '@/store/ui'
 import { Avatar } from '@/ui/primitives'
 import { AccountMenu } from './AccountMenu'
+import { SpaceOrderDialog } from './SpaceOrderDialog'
 import { ThemeMenu } from './ThemeMenu'
 
 const RAIL_COLLAPSED_WIDTH = 68
@@ -108,6 +109,7 @@ export function SpaceRail() {
   const topLevelSpaces = useChat(s => s.topLevelSpaces)
   const expanded = useUI(s => s.railExpanded)
   const toggleLabel = expanded ? 'Collapse spaces' : 'Expand spaces'
+  const [reordering, setReordering] = useState(false)
 
   return (
     <nav
@@ -146,6 +148,22 @@ export function SpaceRail() {
         {topLevelSpaces.map(spaceID => (
           <SpaceItem key={spaceID} spaceID={spaceID} />
         ))}
+        {topLevelSpaces.length > 1 && (
+          <RailTooltip label="Reorder spaces" enabled={!expanded}>
+            <button
+              type="button"
+              aria-label="Reorder spaces"
+              onClick={() => setReordering(true)}
+              className={cn(
+                'space-rail-reorder flex shrink-0 items-center text-muted transition-colors hover:text-fg',
+                expanded ? 'gap-3 rounded-xl px-3 py-1.5 text-sm hover:bg-hover' : 'mx-auto size-9 justify-center rounded-lg hover:bg-hover',
+              )}
+            >
+              <ArrowUpDown size={16} />
+              {expanded && 'Reorder spaces'}
+            </button>
+          </RailTooltip>
+        )}
       </div>
       <div
         className={cn(
@@ -156,6 +174,7 @@ export function SpaceRail() {
         <ThemeMenu />
         <AccountMenu expanded={expanded} />
       </div>
+      <SpaceOrderDialog open={reordering} onOpenChange={setReordering} />
     </nav>
   )
 }
