@@ -1,4 +1,4 @@
-import { File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
+import { Ban, File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { client } from '@/api/client'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
@@ -12,6 +12,7 @@ import { customEmojiMarkdown, recordEmojiUse, sendSticker, type CustomEmoji } fr
 import { displayContent, hasNoRenderer, isMessageLike, isPendingEvent, isRenderable, shownSender } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { closeEventContext, useEventContext } from '@/store/navigation'
+import { useCanSendMessages } from '@/store/permissions'
 import { usePreference } from '@/store/preferences'
 import { useUI } from '@/store/ui'
 import { EmojiSuggestions, useEmojiSuggestions } from '@/ui/emoji/EmojiAutocomplete'
@@ -109,7 +110,26 @@ interface ComposerProps {
   threadRoot?: EventID
 }
 
+/**
+ * The message box, or word that it's closed: when the room's power levels put sending out of reach
+ * (a muted user, a room locked down before an upgrade) a message would only bounce off the server.
+ */
 export function Composer({ roomID, threadRoot }: ComposerProps) {
+  const canSend = useCanSendMessages(roomID)
+  if (!canSend) {
+    return (
+      <div className="composer-wrap relative shrink-0 px-4 pb-4">
+        <div className="composer-blocked flex items-center gap-2 rounded-xl border border-border bg-surface-2/40 px-3 py-3 text-sm text-muted">
+          <Ban size={16} className="shrink-0" />
+          You're not allowed to send messages in this room.
+        </div>
+      </div>
+    )
+  }
+  return <MessageComposer roomID={roomID} threadRoot={threadRoot} />
+}
+
+function MessageComposer({ roomID, threadRoot }: ComposerProps) {
   // Reply/edit state is global; each composer only acts on the state aimed at its own scope.
   const scope = threadRoot ?? null
   const draftKey = threadRoot ? `${roomID}|${threadRoot}` : roomID

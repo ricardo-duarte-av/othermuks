@@ -28,3 +28,27 @@ export function useCanRedact(roomID: string, sender: UserID): boolean {
   const ownUserID = useChat(selectOwnUserID)
   return canRedactEvent(powerLevels, createEvent, ownUserID, sender)
 }
+
+/**
+ * Whether messages can be sent at all. In an encrypted room the server checks the level for
+ * m.room.encrypted, the type messages go out as, rather than m.room.message. Until the room's power
+ * levels are known this says yes: blocking on missing state would lock people out of rooms that
+ * simply haven't loaded it yet.
+ */
+export function canSendMessages(
+  powerLevels: PowerLevelsContent | undefined,
+  createEvent: TimelineEvent | undefined,
+  ownUserID: UserID | undefined,
+  encrypted: boolean,
+): boolean {
+  if (!powerLevels || !ownUserID) return true
+  const own = userPowerLevel(powerLevels, createEvent, ownUserID)
+  return own >= eventPowerLevel(powerLevels, encrypted ? 'm.room.encrypted' : 'm.room.message')
+}
+
+export function useCanSendMessages(roomID: string): boolean {
+  const { powerLevels, createEvent } = useRoomPowerContext(roomID)
+  const ownUserID = useChat(selectOwnUserID)
+  const encrypted = useChat(s => !!s.rooms[roomID]?.meta.encryption_event)
+  return canSendMessages(powerLevels, createEvent, ownUserID, encrypted)
+}
