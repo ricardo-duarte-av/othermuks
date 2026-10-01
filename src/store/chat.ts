@@ -378,11 +378,19 @@ export function handleRPCEvent(evt: RPCEvent) {
       }
       break
     }
-    case 'send_complete':
+    case 'send_complete': {
       // The event carries the real event ID now (same rowid as the ~txn local echo). Its send_error is
-      // still the "not sent" placeholder even on success, so a real failure comes from data.error.
-      storeEvents([evt.data.error ? { ...evt.data.event, send_error: evt.data.error } : evt.data.event])
+      // still the "not sent" placeholder even on success, so whether it failed comes from data.error.
+      // That's a Go error, which marshals to {}: the message itself is the event's send_error.
+      const { event, error } = evt.data
+      if (error == null) {
+        storeEvents([event])
+        break
+      }
+      const reason = typeof error === 'string' && error ? error : event.send_error && event.send_error !== 'not sent' ? event.send_error : 'unknown error'
+      storeEvents([{ ...event, send_error: reason }])
       break
+    }
     case 'typing':
       patchRoom(evt.data.room_id, { typing: evt.data.user_ids })
       break

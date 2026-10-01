@@ -377,7 +377,8 @@ export type RPCEvent =
   | Cmd<'sync_complete', SyncCompleteData>
   | Cmd<'init_complete', null>
   | Cmd<'typing', { room_id: RoomID; user_ids: UserID[] }>
-  | Cmd<'send_complete', { event: RawDBEvent; error: string | null }>
+  // error is a Go error: {} when set, whatever the cause, so only its presence means anything.
+  | Cmd<'send_complete', { event: RawDBEvent; error: unknown }>
   | Cmd<'events_decrypted', {
       room_id: RoomID
       preview_event_rowid?: EventRowID

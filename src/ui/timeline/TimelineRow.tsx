@@ -788,7 +788,8 @@ function SendFailure({ evt }: { evt: TimelineEvent }) {
   }
   return (
     <p className="send-failure flex flex-wrap items-center gap-x-2 text-xs text-danger">
-      <span>Failed to send: {evt.send_error}</span>
+      {/* Only ever text; an older build could have cached the {} gomuks sends as the error object. */}
+      <span>Failed to send: {typeof evt.send_error === 'string' ? evt.send_error : 'unknown error'}</span>
       {evt.transaction_id && (
         <button type="button" onClick={() => void retry()} disabled={retrying} className="font-medium underline disabled:opacity-60">
           {retrying ? 'Retrying…' : 'Retry'}
