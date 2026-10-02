@@ -16,6 +16,9 @@ import { ENTER_ANIMATION_WINDOW, TimelineRow } from './TimelineRow'
 
 const LOAD_THRESHOLD = 800
 const BOTTOM_THRESHOLD = 48
+/** How long after a wheel, touch or key event a scroll still counts as the user's own. */
+const USER_SCROLL_WINDOW = 400
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 const NO_ROWS: EventRowID[] = []
 // Separators for the receipt layout signature; control characters can't appear in user IDs.
 const ROW_SEPARATOR = '\u0001'
@@ -191,6 +194,16 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
   const programmatic = useRef<number | null>(null)
   /** Last observed scroll position, to tell which way the view moved. */
   const lastTop = useRef(0)
+  /**
+   * When the user last did something that scrolls (wheel, touch, a scroll key), and whether they're
+   * dragging the scrollbar. Only that may detach the view from the bottom. The scroll position also
+   * moves by itself: the virtualizer shifts it the moment a row above shrinks (a reaction picker
+   * closing, a receipt moving on), a frame before the content's height catches up, and the browser
+   * clamps it when the view grows. Taken for the user scrolling up, any of those left the timeline
+   * parked while new messages arrived below it.
+   */
+  const userScrollAt = useRef(0)
+  const draggingScrollbar = useRef(false)
 
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -217,6 +230,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     // grow by thousands of pixels under a view that is already at the bottom; measured by distance
     // alone that looks exactly like scrolling away, and the timeline would stop following the room.
     const movedUp = el.scrollTop < lastTop.current - 1
+    const byUser = draggingScrollbar.current || performance.now() - userScrollAt.current < USER_SCROLL_WINDOW
     lastTop.current = el.scrollTop
     if (jumping.current) {
       // Mid smooth-scroll from "Jump to latest": stay attached until the bottom is reached.
@@ -226,7 +240,7 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       }
       return
     }
-    atBottom.current = reachedBottom || (atBottom.current && !movedUp)
+    atBottom.current = reachedBottom || (atBottom.current && !(movedUp && byUser))
     setDetached(!atBottom.current)
     const first = virtualizer.getVirtualItems().find(item => item.end > el.scrollTop)
     anchor.current = first ? { rowid: first.key as EventRowID, offset: first.start - el.scrollTop } : null
@@ -256,6 +270,21 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
       }
     }
   }, [items, totalSize, virtualizer])
+
+  // The view itself changes size under a pinned timeline: the composer grows with a reply bar or a
+  // longer draft, a typing indicator comes and goes. Keep the newest message in sight.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => {
+      if (!atBottom.current || jumping.current) return
+      el.scrollTop = el.scrollHeight
+      programmatic.current = el.scrollTop
+      lastTop.current = el.scrollTop
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // Jump to a message (e.g. from a reply preview); the row highlights itself.
   useEffect(() => {
@@ -307,9 +336,10 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
-  /** The user taking over the scroll ends a jump in progress. */
-  const cancelJump = () => {
+  /** The user taking over the scroll ends a jump in progress, and may take the view off the bottom. */
+  const userScrolled = () => {
     jumping.current = false
+    userScrollAt.current = performance.now()
   }
 
   return (
@@ -345,9 +375,25 @@ export function Timeline({ roomID }: { roomID: RoomID }) {
         layoutScroll
         ref={scrollRef}
         onScroll={onScroll}
-        onWheel={cancelJump}
-        onTouchStart={cancelJump}
-        onKeyDown={cancelJump}
+        onWheel={userScrolled}
+        onTouchStart={userScrolled}
+        onTouchMove={userScrolled}
+        onKeyDown={e => {
+          if (SCROLL_KEYS.has(e.key)) userScrolled()
+        }}
+        // A press on the container itself, not a row, is a grab of its scrollbar.
+        onPointerDown={e => {
+          if (e.target !== e.currentTarget) return
+          draggingScrollbar.current = true
+          userScrolled()
+          const release = () => {
+            draggingScrollbar.current = false
+            window.removeEventListener('pointerup', release)
+            window.removeEventListener('pointercancel', release)
+          }
+          window.addEventListener('pointerup', release)
+          window.addEventListener('pointercancel', release)
+        }}
         role="log"
         className="timeline flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [overflow-anchor:none]"
       >
