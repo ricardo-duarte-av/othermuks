@@ -13,6 +13,7 @@ import { useMember } from '@/store/hooks'
 import { loadReactionDetails, reactionSignature, useReactionDetails } from '@/store/reactions'
 import { openProfile, showToast, useUI, type MessageDialog } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
+import { handleSpoilerClick, handleSpoilerKey } from '@/ui/spoilers'
 import { Avatar, Spinner } from '@/ui/primitives'
 
 const closeDialog = () => useUI.setState({ dialog: null })
@@ -153,7 +154,12 @@ function ContentPreview({ content, localContent }: { content: MessageEventConten
   }
   const html = localContent?.sanitized_html
   return html ? (
-    <div className="message-body text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }} />
+    <div
+      className="message-body text-sm"
+      onClick={e => handleSpoilerClick(e)}
+      onKeyDown={e => handleSpoilerKey(e)}
+      dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }}
+    />
   ) : (
     <p className="message-body whitespace-pre-wrap text-sm">{typeof content.body === 'string' ? content.body : ''}</p>
   )

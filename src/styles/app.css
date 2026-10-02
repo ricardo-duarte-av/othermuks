@@ -551,17 +551,59 @@
     overflow-wrap: anywhere;
   }
 
-  .message-body span[data-mx-spoiler] {
-    background: var(--fg);
-    color: transparent;
-    border-radius: 0.25em;
-    cursor: pointer;
-    transition: color 150ms, background 150ms;
+  /* Spoilers (ui/spoilers): hidden until clicked, then shown on a faint tint; a click hides them again.
+     gomuks turns data-mx-spoiler into span.hicli-spoiler with the reason in a span.spoiler-reason
+     before it; bios and other untouched HTML keep the attribute. */
+  .message-body .spoiler-reason {
+    display: inline-block;
+    margin-right: 0.3em;
+    padding: 0 0.4em;
+    border: 1px solid var(--border);
+    border-radius: 0.3em;
+    color: var(--muted);
+    font-size: 0.8em;
+    line-height: 1.45;
+    vertical-align: 0.05em;
   }
 
-  .message-body span[data-mx-spoiler]:hover {
-    background: var(--surface-2);
-    color: var(--fg);
+  .message-body :is(span.hicli-spoiler, span[data-mx-spoiler]) {
+    border-radius: 0.25em;
+    padding: 0 0.1em;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    outline: none;
+    transition: color 150ms, text-shadow 150ms, background-color 150ms;
+  }
+
+  .message-body :is(span.hicli-spoiler, span[data-mx-spoiler]):focus-visible {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  /* Hidden: text becomes a blur of its own shape, and everything inside (links, pills, code, emoji,
+     maths) goes with it. Links can't be clicked through; the first click is the reveal. */
+  .message-body :is(span.hicli-spoiler, span[data-mx-spoiler]):not([data-revealed]) {
+    color: transparent;
+    text-shadow: 0 0 0.5em color-mix(in srgb, var(--fg) 75%, transparent);
+    background: color-mix(in srgb, var(--fg) 14%, transparent);
+    user-select: none;
+  }
+
+  .message-body :is(span.hicli-spoiler, span[data-mx-spoiler]):not([data-revealed]):hover {
+    background: color-mix(in srgb, var(--fg) 22%, transparent);
+  }
+
+  .message-body :is(span.hicli-spoiler, span[data-mx-spoiler]):not([data-revealed]) * {
+    color: transparent !important;
+    text-shadow: inherit;
+    background-color: transparent !important;
+    border-color: transparent !important;
+    pointer-events: none;
+  }
+
+  .message-body :is(span.hicli-spoiler, span[data-mx-spoiler]):not([data-revealed]) :is(img, video, svg, .katex) {
+    filter: blur(8px);
   }
 
   .message-body[data-big-emoji] {

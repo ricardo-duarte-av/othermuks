@@ -79,6 +79,12 @@ purify.addHook('uponSanitizeAttribute', (node, data) => {
 })
 
 purify.addHook('afterSanitizeAttributes', node => {
+  // Spoilers are toggled by click (ui/spoilers), so they're buttons to keyboards and screen readers.
+  if (node.tagName === 'SPAN' && (node.classList.contains('hicli-spoiler') || node.hasAttribute('data-mx-spoiler'))) {
+    node.setAttribute('role', 'button')
+    node.setAttribute('tabindex', '0')
+    node.setAttribute('aria-expanded', 'false')
+  }
   if (node.tagName === 'A') {
     // Links to a user or a room render as pills; links to a specific message stay regular links.
     const target = parseMatrixURI(node.getAttribute('href') ?? '')

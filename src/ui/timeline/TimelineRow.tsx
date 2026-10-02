@@ -6,6 +6,7 @@ import {
   Copy,
   Ellipsis,
   Eye,
+  EyeOff,
   FileText,
   Film,
   Image as ImageIcon,
@@ -28,7 +29,7 @@ import {
   X,
 } from 'lucide-react'
 import { motion } from 'motion/react'
-import { memo, useEffect, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { client } from '@/api/client'
 import { avatarURL, mediaURL, userColorIndex } from '@/api/media'
@@ -59,6 +60,8 @@ import {
   isMessageLike,
   isPendingEvent,
   isRuleMessage,
+  MEDIA_SPOILER_KEY,
+  MEDIA_SPOILER_REASON_KEY,
   mentionsUser,
   previewText,
   shownSender,
@@ -78,6 +81,7 @@ import { loadReactionDetails, reactionSignature, useReactionDetails, type Reacto
 import { openLightbox, openMessageDialog, openProfile, openThread, showToast, useUI } from '@/store/ui'
 import { blurhashDataURL, blurhashOf } from '@/ui/blurhash'
 import { sanitizeHTML } from '@/ui/html'
+import { handleSpoilerClick, handleSpoilerKey, restoreSpoilers } from '@/ui/spoilers'
 import { Avatar, Spinner } from '@/ui/primitives'
 import { ReactionPicker } from './ReactionPicker'
 import { ReadReceipts } from './ReadReceipts'
@@ -163,7 +167,12 @@ function GomuksNoticeRow({ roomID, evt, compact }: { roomID: RoomID; evt: Timeli
             </time>
           </div>
         )}
-        <div className="message-body break-words text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }} />
+        <div
+          className="message-body break-words text-sm"
+          onClick={e => handleSpoilerClick(e)}
+          onKeyDown={e => handleSpoilerKey(e)}
+          dangerouslySetInnerHTML={{ __html: sanitizeHTML(html) }}
+        />
       </div>
       <button
         type="button"
@@ -849,12 +858,14 @@ function MessageContent({ roomID, evt, content, localContent, senderName }: Cont
       return (
         <>
           <MediaContent roomID={roomID} content={content} msgtype={msgtype} />
-          {hasCaption && <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} className="mt-1" />}
+          {hasCaption && (
+            <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} className="mt-1" spoilerKey={evt.event_id} />
+          )}
         </>
       )
     }
     default:
-      return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} />
+      return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} spoilerKey={evt.event_id} />
   }
 }
 
@@ -902,6 +913,8 @@ interface TextBodyProps extends Omit<ContentProps, 'evt'> {
   className?: string
   /** Emoji-only messages render large, except where space is tight (reply previews). */
   allowBigEmoji?: boolean
+  /** The message's event ID, under which revealed spoilers are remembered (shared by its reply previews). */
+  spoilerKey?: string
 }
 
 /**
@@ -930,15 +943,20 @@ function handleMessageBodyClick(e: MouseEvent<HTMLElement>) {
   openLightbox(src, target.getAttribute('alt') || target.getAttribute('title') || undefined)
 }
 
-function TextBody({ content, localContent, msgtype, senderName, className, allowBigEmoji = true }: TextBodyProps) {
+function TextBody({ content, localContent, msgtype, senderName, className, allowBigEmoji = true, spoilerKey }: TextBodyProps) {
   const html = localContent?.sanitized_html
   const formattedBody = (content as { formatted_body?: unknown }).formatted_body
+  const bodyRef = useRef<HTMLDivElement>(null)
+  // The HTML goes in as a string, so spoilers revealed before this row last unmounted come back here.
+  useLayoutEffect(() => restoreSpoilers(bodyRef.current, spoilerKey), [html, spoilerKey])
   return (
     <div
+      ref={bodyRef}
       className={cn('message-body text-[15px]', className)}
       data-notice={msgtype === 'm.notice' || undefined}
       data-big-emoji={(allowBigEmoji && localContent?.big_emoji) || undefined}
-      onClick={html ? handleMessageBodyClick : undefined}
+      onClick={html ? e => handleSpoilerClick(e, spoilerKey) || handleMessageBodyClick(e) : undefined}
+      onKeyDown={html ? e => handleSpoilerKey(e, spoilerKey) : undefined}
     >
       {msgtype === 'm.emote' && <span className="font-medium">* {senderName} </span>}
       {html ? (
@@ -998,8 +1016,18 @@ function FadeInImage({ src, alt, placeholder }: { src: string; alt: string; plac
 const placeholderStyle = (placeholder: string | undefined): CSSProperties | undefined =>
   placeholder ? { backgroundImage: `url(${placeholder})`, backgroundSize: '100% 100%' } : undefined
 
-/** Media revealed while show_media_previews is off, remembered so rows scrolled away and back stay revealed. */
+/**
+ * Media revealed while hidden (show_media_previews off, or sent as a spoiler), remembered for the
+ * session so rows scrolled away and back stay revealed.
+ */
 const revealedMedia = new Set<string>()
+
+function mediaSpoiler(content: MessageEventContent): { reason?: string } | undefined {
+  const raw = content as unknown as Record<string, unknown>
+  if (raw[MEDIA_SPOILER_KEY] !== true) return undefined
+  const reason = raw[MEDIA_SPOILER_REASON_KEY]
+  return { reason: typeof reason === 'string' && reason.trim() ? reason.trim() : undefined }
+}
 
 function formatDuration(ms?: number) {
   if (!ms || ms < 0) return undefined
@@ -1041,12 +1069,18 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
   const name = content.filename ?? content.body
 
   // show_media_previews off: nothing is downloaded until the user asks for it. Until then show the
-  // blurhash (when the sender included one) and what the event says about the file.
+  // blurhash (when the sender included one) and what the event says about the file. A spoiler hides
+  // the same way whatever the preference, behind a heavily blurred thumbnail when previews are on;
+  // its file name stays hidden too, since that can give it away.
+  const spoiler = mediaSpoiler(content)
+  const visual = msgtype === 'm.image' || msgtype === 'm.sticker' || msgtype === 'm.video'
   const revealed = revealedHere || revealedMedia.has(url)
-  if (!showPreviews && !revealed && (msgtype === 'm.image' || msgtype === 'm.sticker' || msgtype === 'm.video')) {
+  if (visual && !revealed && (!showPreviews || spoiler)) {
     const kind = msgtype === 'm.video' ? 'video' : isSticker ? 'sticker' : 'image'
     const details = mediaDetails(info)
-    const label = content.filename || content.body
+    const label = spoiler ? spoiler.reason : content.filename || content.body
+    const action = spoiler ? 'Show spoiler' : `Show ${kind}`
+    const blurred = spoiler && showPreviews && !placeholder ? (thumbnail ?? inline) : undefined
     return (
       <button
         type="button"
@@ -1054,8 +1088,8 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
           revealedMedia.add(url)
           setRevealedHere(true)
         }}
-        aria-label={`Show ${kind}${label ? `: ${label}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`}
-        title={`Show ${kind}`}
+        aria-label={`${action}${label ? `: ${label}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`}
+        title={action}
         className={cn(
           'media-hidden group/hidden relative mt-1 flex max-w-full flex-col overflow-hidden rounded-lg border border-border text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
           placeholder ? 'bg-surface' : 'bg-surface-2/60',
@@ -1067,20 +1101,23 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
           ...placeholderStyle(placeholder),
         }}
       >
-        <span className="flex flex-1 flex-col items-center justify-center gap-2 p-3">
-          {!placeholder && <MediaKindIcon kind={kind} />}
+        {blurred && (
+          <img src={blurred} alt="" aria-hidden draggable={false} className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
+        )}
+        <span className="relative flex flex-1 flex-col items-center justify-center gap-2 p-3">
+          {!placeholder && !blurred && (spoiler ? <EyeOff size={26} className="shrink-0 text-muted" aria-hidden /> : <MediaKindIcon kind={kind} />)}
           <span className="flex items-center gap-1.5 rounded-full bg-bg/85 px-3 py-1 text-sm font-medium text-fg shadow-sm backdrop-blur-sm transition-transform group-hover/hidden:scale-105">
-            <Eye size={14} /> Show {kind}
+            {spoiler ? <EyeOff size={14} /> : <Eye size={14} />} {action}
           </span>
         </span>
         {(label || details.length > 0) && (
           <span
             className={cn(
-              'block w-full px-2.5 pb-2 pt-5 text-xs leading-snug',
-              placeholder ? 'bg-linear-to-t from-black/70 to-transparent text-white' : 'text-muted',
+              'relative block w-full px-2.5 pb-2 pt-5 text-xs leading-snug',
+              placeholder || blurred ? 'bg-linear-to-t from-black/70 to-transparent text-white' : 'text-muted',
             )}
           >
-            {label && <span className={cn('block truncate font-medium', !placeholder && 'text-fg')}>{label}</span>}
+            {label && <span className={cn('block truncate font-medium', !placeholder && !blurred && 'text-fg')}>{label}</span>}
             {details.length > 0 && <span className="block truncate opacity-90">{details.join(' · ')}</span>}
           </span>
         )}
@@ -1088,75 +1125,98 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
     )
   }
 
-  switch (msgtype) {
-    case 'm.image':
-    case 'm.sticker': {
-      // autoplay_gifs off: a GIF shows its still thumbnail until hovered.
-      const pauseGif = info.mimetype === 'image/gif' && !autoplayGifs && !!thumbnail
-      const still = pauseGif && !hovering ? thumbnail : undefined
-      const src = still ?? (isSticker ? url : (inline ?? url))
-      return (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onMouseEnter={pauseGif ? () => setHovering(true) : undefined}
-          onMouseLeave={pauseGif ? () => setHovering(false) : undefined}
-          onClick={e => {
-            // Plain clicks open the lightbox; middle/modifier clicks keep opening a new tab.
-            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
-            e.preventDefault()
-            // The thumbnail's box and pixels, so the viewer can grow out of what was just clicked.
-            const rect = e.currentTarget.getBoundingClientRect()
-            openLightbox(url, name, {
-              placeholder,
-              width: info.w,
-              height: info.h,
-              from: {
-                rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-                url: src,
-                element: e.currentTarget,
-              },
-            })
-          }}
-          className={cn(
-            'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
-            !isSticker && 'border border-border bg-surface',
-          )}
-          data-sticker={isSticker || undefined}
-          style={{ ...(boxStyle ?? { maxWidth }), ...placeholderStyle(placeholder) }}
-        >
-          <FadeInImage key={src} src={src} alt={content.body} placeholder={placeholder} />
-        </a>
-      )
+  if (!spoiler || !visual) return renderMedia(url)
+  // A revealed spoiler can be put away again.
+  return (
+    <span className="media-spoiler-revealed group/spoiler relative block w-fit max-w-full">
+      {renderMedia(url)}
+      <button
+        type="button"
+        onClick={() => {
+          revealedMedia.delete(url)
+          setRevealedHere(false)
+        }}
+        title="Hide spoiler"
+        aria-label="Hide spoiler"
+        className="absolute right-2 top-3 flex items-center gap-1 rounded-full bg-bg/85 px-2 py-0.5 text-xs font-medium text-fg opacity-0 shadow-sm backdrop-blur-sm transition-opacity focus-visible:opacity-100 group-hover/spoiler:opacity-100"
+      >
+        <EyeOff size={12} /> Hide
+      </button>
+    </span>
+  )
+
+  // Narrowed already, but a nested function doesn't see that.
+  function renderMedia(url: string): ReactNode {
+    switch (msgtype) {
+      case 'm.image':
+      case 'm.sticker': {
+        // autoplay_gifs off: a GIF shows its still thumbnail until hovered.
+        const pauseGif = info.mimetype === 'image/gif' && !autoplayGifs && !!thumbnail
+        const still = pauseGif && !hovering ? thumbnail : undefined
+        const src = still ?? (isSticker ? url : (inline ?? url))
+        return (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onMouseEnter={pauseGif ? () => setHovering(true) : undefined}
+            onMouseLeave={pauseGif ? () => setHovering(false) : undefined}
+            onClick={e => {
+              // Plain clicks open the lightbox; middle/modifier clicks keep opening a new tab.
+              if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
+              e.preventDefault()
+              // The thumbnail's box and pixels, so the viewer can grow out of what was just clicked.
+              const rect = e.currentTarget.getBoundingClientRect()
+              openLightbox(url, name, {
+                placeholder,
+                width: info.w,
+                height: info.h,
+                from: {
+                  rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+                  url: src,
+                  element: e.currentTarget,
+                },
+              })
+            }}
+            className={cn(
+              'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
+              !isSticker && 'border border-border bg-surface',
+            )}
+            data-sticker={isSticker || undefined}
+            style={{ ...(boxStyle ?? { maxWidth }), ...placeholderStyle(placeholder) }}
+          >
+            <FadeInImage key={src} src={src} alt={content.body} placeholder={placeholder} />
+          </a>
+        )
+      }
+      case 'm.video':
+        return (
+          <video
+            src={url}
+            poster={thumbnail}
+            controls
+            preload="none"
+            className={cn('media-video mt-1 max-w-full rounded-lg', !placeholder && 'bg-black')}
+            style={{ ...(boxStyle ?? { width: Math.min(420, maxWidth) }), ...placeholderStyle(placeholder) }}
+          />
+        )
+      case 'm.audio':
+        return <audio src={url} controls preload="none" className="media-audio mt-1 w-80 max-w-full" />
+      default:
+        return (
+          <a
+            href={url}
+            download={name}
+            className="media-file mt-1 flex w-fit max-w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 transition-colors hover:bg-hover"
+          >
+            <FileText size={22} className="shrink-0 text-accent" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{name}</span>
+              <span className="block text-xs text-muted">{[formatBytes(info.size), info.mimetype].filter(Boolean).join(' · ')}</span>
+            </span>
+          </a>
+        )
     }
-    case 'm.video':
-      return (
-        <video
-          src={url}
-          poster={thumbnail}
-          controls
-          preload="none"
-          className={cn('media-video mt-1 max-w-full rounded-lg', !placeholder && 'bg-black')}
-          style={{ ...(boxStyle ?? { width: Math.min(420, maxWidth) }), ...placeholderStyle(placeholder) }}
-        />
-      )
-    case 'm.audio':
-      return <audio src={url} controls preload="none" className="media-audio mt-1 w-80 max-w-full" />
-    default:
-      return (
-        <a
-          href={url}
-          download={name}
-          className="media-file mt-1 flex w-fit max-w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 transition-colors hover:bg-hover"
-        >
-          <FileText size={22} className="shrink-0 text-accent" />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{name}</span>
-            <span className="block text-xs text-muted">{[formatBytes(info.size), info.mimetype].filter(Boolean).join(' · ')}</span>
-          </span>
-        </a>
-      )
   }
 }
 
@@ -1213,7 +1273,10 @@ export function ReplyPreview({ roomID, eventID, small }: { roomID: RoomID; event
         <span className="shrink-0 font-medium" style={{ color }} title={shown.via ? `${name} via ${evt.sender}` : evt.sender}>
           {name}
         </span>
-        <span className="min-w-0 truncate">{lastEdit && !evt.redacted_by ? (displayContent(evt, lastEdit).content.body ?? '') : previewText(evt)}</span>
+        {/* An edit's own preview_text, like the original's, keeps spoilers out ("<message contains spoilers>"). */}
+        <span className="min-w-0 truncate">
+          {lastEdit && !evt.redacted_by ? (lastEdit.local_content?.preview_text ?? displayContent(evt, lastEdit).content.body ?? '') : previewText(evt)}
+        </span>
       </div>
     )
   }
@@ -1248,8 +1311,9 @@ function ReplyBody({ evt, lastEdit, senderName }: { evt: TimelineEvent; lastEdit
     const { url, inline } = mediaSources(content)
     const hasCaption = !!content.filename && content.body !== content.filename
     const info = content.info ?? {}
-    // Quoted media obeys show_media_previews too, unless it was already revealed in the timeline.
-    const hidden = !showPreviews && !(url && revealedMedia.has(url))
+    // Quoted media obeys show_media_previews and spoilers too, unless it was already revealed in the timeline.
+    const spoiler = mediaSpoiler(content)
+    const hidden = (!showPreviews || !!spoiler) && !(url && revealedMedia.has(url))
     const placeholder = hidden ? blurhashDataURL(blurhashOf(info)) : undefined
     const thumb = fitSize(info.w, info.h, 120, 64)
     const details = hidden ? mediaDetails(info) : []
@@ -1267,14 +1331,26 @@ function ReplyBody({ evt, lastEdit, senderName }: { evt: TimelineEvent; lastEdit
               <MediaKindIcon kind={msgtype === 'm.sticker' ? 'sticker' : 'image'} size={16} />
             )}
             <span className="min-w-0 leading-tight text-muted">
-              <span className="block truncate">{content.filename || content.body || (msgtype === 'm.sticker' ? 'Sticker' : 'Image')}</span>
+              <span className="block truncate">
+                {spoiler ? (spoiler.reason ? `Spoiler: ${spoiler.reason}` : 'Spoiler') : content.filename || content.body || (msgtype === 'm.sticker' ? 'Sticker' : 'Image')}
+              </span>
               {details.length > 0 && <span className="block truncate text-[11px]">{details.join(' · ')}</span>}
             </span>
           </span>
         ) : (
           inline && <img src={inline} alt={content.body} loading="lazy" className="max-h-28 max-w-48 rounded object-cover" />
         )}
-        {hasCaption && <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} className="text-[13px] text-fg/80" allowBigEmoji={false} />}
+        {hasCaption && (
+          <TextBody
+            content={content}
+            localContent={localContent}
+            msgtype="m.text"
+            senderName={senderName}
+            className="text-[13px] text-fg/80"
+            allowBigEmoji={false}
+            spoilerKey={evt.event_id}
+          />
+        )}
       </span>
     )
   }
@@ -1285,7 +1361,17 @@ function ReplyBody({ evt, lastEdit, senderName }: { evt: TimelineEvent; lastEdit
       </span>
     )
   }
-  return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} className="text-[13px] text-fg/80" allowBigEmoji={false} />
+  return (
+    <TextBody
+      content={content}
+      localContent={localContent}
+      msgtype={msgtype}
+      senderName={senderName}
+      className="text-[13px] text-fg/80"
+      allowBigEmoji={false}
+      spoilerKey={evt.event_id}
+    />
+  )
 }
 
 function ThreadSummary({ eventID }: { eventID: EventID }) {

@@ -10,6 +10,7 @@ import { ROLE_LABELS, roleForLevel, userPowerLevel } from '@/store/power'
 import { loadProfile, pronounsOf, statusOf, timeZoneOf, useProfiles } from '@/store/profiles'
 import { openLightbox, openStateExplorer, showToast, useUI } from '@/store/ui'
 import { sanitizeHTML } from '@/ui/html'
+import { handleSpoilerClick, handleSpoilerKey } from '@/ui/spoilers'
 import { Avatar, IconButton, Spinner } from '@/ui/primitives'
 import { ProfileEditor } from './ProfileEditor'
 import { SharedRoomsSection, UserActions } from './UserActions'
@@ -372,7 +373,12 @@ export function UserProfilePanel({ roomID, userID }: { roomID: RoomID; userID: U
           {entry?.bio?.html && (
             <section>
               <SectionTitle>Bio</SectionTitle>
-              <div className="profile-bio message-body text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHTML(entry.bio.html) }} />
+              <div
+                className="profile-bio message-body text-sm"
+                onClick={e => handleSpoilerClick(e)}
+                onKeyDown={e => handleSpoilerKey(e)}
+                dangerouslySetInnerHTML={{ __html: sanitizeHTML(entry.bio.html) }}
+              />
             </section>
           )}
 

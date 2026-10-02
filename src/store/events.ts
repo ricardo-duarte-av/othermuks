@@ -50,6 +50,10 @@ export function displayNameOf(userID: UserID, member?: { displayname?: unknown }
   return typeof name === 'string' && name.trim() ? name : fallbackDisplayName(userID)
 }
 
+/** MSC4193's unstable keys: media sent as a spoiler, and optionally why. */
+export const MEDIA_SPOILER_KEY = 'page.codeberg.everypizza.msc4193.spoiler'
+export const MEDIA_SPOILER_REASON_KEY = 'page.codeberg.everypizza.msc4193.spoiler.reason'
+
 /** MSC4144's unstable field for a message sent under a per-message profile. */
 export const PER_MESSAGE_PROFILE_KEY = 'com.beeper.per_message_profile'
 
