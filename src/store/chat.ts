@@ -32,7 +32,8 @@ import { log } from '@/lib/log'
 import { markOnce } from '@/lib/perf'
 import { describeMedia } from '@/lib/thumbnail'
 import { COMMAND_CONTENT_KEY, GOMUKS_SENDER } from './commands'
-import { isPendingEvent, normalizeEvent, threadRootOf, type TimelineEvent } from './events'
+import { isSpoilerAttachment } from './attachments'
+import { isPendingEvent, MEDIA_SPOILER_KEY, normalizeEvent, threadRootOf, type TimelineEvent } from './events'
 import { getPreference } from './preferences'
 
 /** A user's latest read receipt in the main timeline, resolved to the event's rowid. */
@@ -635,7 +636,7 @@ export async function sendText(roomID: RoomID, text: string, { replyTo, edit, th
 export async function sendMedia(
   roomID: RoomID,
   content: MessageEventContent,
-  { replyTo, threadRoot, caption, mentionRoom }: Omit<SendOptions, 'edit'> & { caption?: string } = {},
+  { replyTo, threadRoot, caption, mentionRoom, extra }: Omit<SendOptions, 'edit'> & { caption?: string; extra?: Record<string, unknown> } = {},
 ) {
   let relates_to: RelatesTo | undefined
   if (threadRoot) relates_to = threadRelation(threadRoot, replyTo)
@@ -646,6 +647,8 @@ export async function sendMedia(
     room_id: roomID,
     text: caption ?? '',
     base_content: content,
+    // Fields gomuks's MessageEventContent doesn't know (it would drop them from base_content).
+    extra,
     relates_to,
     mentions: { user_ids, room: roomMention(caption ?? '', mentionRoom) },
     url_previews: [],
@@ -752,7 +755,8 @@ export async function uploadAndSend(
   const encrypt = !!get().rooms[roomID]?.meta.encryption_event
   let first = true
   for (const file of files) {
-    await sendMedia(roomID, await uploadMedia(file, encrypt), first ? options : { ...options, caption: undefined })
+    const extra = isSpoilerAttachment(file) ? { [MEDIA_SPOILER_KEY]: true } : undefined
+    await sendMedia(roomID, await uploadMedia(file, encrypt), { ...options, caption: first ? options.caption : undefined, extra })
     first = false
   }
 }

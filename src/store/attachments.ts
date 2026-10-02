@@ -8,7 +8,27 @@ export const attachmentKey = (roomID: RoomID, threadRoot?: EventID) => (threadRo
 
 const NO_FILES: File[] = []
 
-export const useAttachments = create<{ staged: Record<string, File[]> }>()(() => ({ staged: {} }))
+export const useAttachments = create<{ staged: Record<string, File[]>; spoilerVersion: number }>()(() => ({ staged: {}, spoilerVersion: 0 }))
+
+/**
+ * Files to send as spoilers (MSC4193). Weak, and keyed by the File itself, so a mark survives the
+ * files being cleared for sending and handed back on failure, and goes when the file does.
+ */
+const spoilers = new WeakSet<File>()
+
+export const isSpoilerAttachment = (file: File) => spoilers.has(file)
+
+/** Whether a staged file is marked as a spoiler; re-renders when any mark changes. */
+export function useIsSpoilerAttachment(file: File): boolean {
+  useAttachments(s => s.spoilerVersion)
+  return spoilers.has(file)
+}
+
+export function setSpoilerAttachment(file: File, spoiler: boolean) {
+  if (spoiler) spoilers.add(file)
+  else spoilers.delete(file)
+  useAttachments.setState(s => ({ spoilerVersion: s.spoilerVersion + 1 }))
+}
 
 export function useStagedFiles(key: string): File[] {
   return useAttachments(s => s.staged[key] ?? NO_FILES)

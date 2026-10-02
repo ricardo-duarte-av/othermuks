@@ -1,10 +1,18 @@
-import { Ban, File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
+import { Ban, EyeOff, File as FileIcon, Paperclip, Pencil, Reply, SendHorizontal, Smile, Sticker, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { client } from '@/api/client'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { formatBytes } from '@/lib/format'
-import { attachmentKey, clearAttachments, removeAttachment, stageAttachments, useStagedFiles } from '@/store/attachments'
+import {
+  attachmentKey,
+  clearAttachments,
+  removeAttachment,
+  setSpoilerAttachment,
+  stageAttachments,
+  useIsSpoilerAttachment,
+  useStagedFiles,
+} from '@/store/attachments'
 import { findLastOwnEditable, sendText, uploadAndSend, useChat } from '@/store/chat'
 import { runCommand } from '@/store/commandRunner'
 import { AVATAR_COMMANDS, resolveInput, suggestCommands, type CommandSuggestion, type ResolvedInput } from '@/store/commands'
@@ -29,6 +37,7 @@ import { ProfilePicker } from './ProfilePicker'
 function AttachmentPreview({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState<string | null>(null)
   const visual = file.type.startsWith('image/') || file.type.startsWith('video/')
+  const spoiler = useIsSpoilerAttachment(file)
 
   useEffect(() => {
     if (!visual) return
@@ -43,11 +52,19 @@ function AttachmentPreview({ file, onRemove }: { file: File; onRemove: () => voi
   return (
     <div className="composer-attachment group relative shrink-0" title={`${file.name} (${formatBytes(file.size)})`}>
       {visual && url ? (
-        file.type.startsWith('image/') ? (
-          <img src={url} alt={file.name} className="size-16 rounded-lg border border-border object-cover" />
-        ) : (
-          <video src={url} muted className="size-16 rounded-lg border border-border object-cover" />
-        )
+        // Blurred while marked, as it will look to everyone else until they reveal it.
+        <div className="relative size-16 overflow-hidden rounded-lg border border-border">
+          {file.type.startsWith('image/') ? (
+            <img src={url} alt={file.name} className={cn('size-full object-cover transition', spoiler && 'scale-110 blur-md')} />
+          ) : (
+            <video src={url} muted className={cn('size-full object-cover transition', spoiler && 'scale-110 blur-md')} />
+          )}
+          {spoiler && (
+            <span className="absolute inset-0 grid place-items-center text-white drop-shadow" aria-hidden>
+              <EyeOff size={18} />
+            </span>
+          )}
+        </div>
       ) : (
         <div className="flex h-16 w-36 flex-col justify-center gap-0.5 rounded-lg border border-border bg-bg px-2">
           <span className="flex items-center gap-1.5 truncate text-xs font-medium">
@@ -65,6 +82,24 @@ function AttachmentPreview({ file, onRemove }: { file: File; onRemove: () => voi
       >
         <X size={12} />
       </button>
+      {/* MSC4193 spoilers only cover what can be blurred: images and videos. */}
+      {visual && (
+        <button
+          type="button"
+          aria-pressed={spoiler}
+          aria-label={spoiler ? `Don't send ${file.name} as a spoiler` : `Send ${file.name} as a spoiler`}
+          title={spoiler ? 'Sending as a spoiler' : 'Mark as spoiler'}
+          onClick={() => setSpoilerAttachment(file, !spoiler)}
+          className={cn(
+            'absolute -bottom-1.5 -left-1.5 grid size-5 place-items-center rounded-full border shadow transition',
+            spoiler
+              ? 'border-accent bg-accent text-accent-fg'
+              : 'border-border bg-surface text-muted opacity-0 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100',
+          )}
+        >
+          <EyeOff size={11} />
+        </button>
+      )}
     </div>
   )
 }
