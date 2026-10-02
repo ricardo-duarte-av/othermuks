@@ -441,7 +441,11 @@ export async function loadOlder(roomID: RoomID) {
     const updated: RoomData = {
       ...current,
       timeline: mergeTimeline(current.timeline, tuples),
-      hasMore: resp.has_more && tuples.length > 0,
+      // An empty page isn't the start of the room. The homeserver may hand back an empty chunk with a
+      // token to go on from (a stretch it filtered out, e.g. one the user may not see), and gomuks
+      // skips events it already has; either way it has moved its position on, so trust has_more.
+      // Finishing paginating re-runs the view's backfill, which asks for the next page.
+      hasMore: resp.has_more,
       paginating: false,
     }
     updated.receipts = mergeReceipts(updated, resp.receipts, tables.eventIDs)
