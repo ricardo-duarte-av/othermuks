@@ -1,5 +1,6 @@
+import * as ContextMenu from '@radix-ui/react-context-menu'
 import * as Tooltip from '@radix-ui/react-tooltip'
-import { ArrowUpDown, House, MessageCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ArrowUpDown, House, ListPlus, MessageCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomID } from '@/api/types'
@@ -10,6 +11,7 @@ import { setActiveSpace, useUI } from '@/store/ui'
 import { Avatar } from '@/ui/primitives'
 import { AccountMenu } from './AccountMenu'
 import { SpaceOrderDialog } from './SpaceOrderDialog'
+import { SpaceRoomsDialog } from './SpaceRoomsDialog'
 import { ThemeMenu } from './ThemeMenu'
 
 const RAIL_COLLAPSED_WIDTH = 68
@@ -95,15 +97,38 @@ function RailItem({ spaceID, label, children }: { spaceID: string; label: string
   )
 }
 
-function SpaceItem({ spaceID }: { spaceID: RoomID }) {
+/** A top-level space; right-click (or long-press) for its rooms and the rail's order. */
+function SpaceItem({ spaceID, onReorder }: { spaceID: RoomID; onReorder: () => void }) {
   const meta = useChat(s => s.rooms[spaceID]?.meta)
+  const [editing, setEditing] = useState(false)
   if (!meta) return null
   return (
-    <RailItem spaceID={spaceID} label={meta.name ?? spaceID}>
-      <Avatar mxc={meta.avatar} id={spaceID} name={meta.name} size={44} className="rounded-[inherit]" />
-    </RailItem>
+    <>
+      <ContextMenu.Root modal={false}>
+        <ContextMenu.Trigger asChild>
+          <div className="w-full">
+            <RailItem spaceID={spaceID} label={meta.name ?? spaceID}>
+              <Avatar mxc={meta.avatar} id={spaceID} name={meta.name} size={44} className="rounded-[inherit]" />
+            </RailItem>
+          </div>
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content collisionPadding={8} className="space-menu z-50 min-w-48 rounded-lg border border-border bg-surface p-1 text-fg shadow-xl">
+            <ContextMenu.Item onSelect={() => setEditing(true)} className={menuItemClass}>
+              <ListPlus size={15} className="text-muted" /> Manage rooms…
+            </ContextMenu.Item>
+            <ContextMenu.Item onSelect={onReorder} className={menuItemClass}>
+              <ArrowUpDown size={15} className="text-muted" /> Reorder spaces…
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+      <SpaceRoomsDialog spaceID={spaceID} open={editing} onOpenChange={setEditing} />
+    </>
   )
 }
+
+const menuItemClass = 'flex cursor-default select-none items-center gap-2.5 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-hover'
 
 export function SpaceRail() {
   const topLevelSpaces = useChat(s => s.topLevelSpaces)
@@ -146,7 +171,7 @@ export function SpaceRail() {
         </RailItem>
         {topLevelSpaces.length > 0 && <div className="mx-auto my-0.5 h-px w-8 shrink-0 bg-border" />}
         {topLevelSpaces.map(spaceID => (
-          <SpaceItem key={spaceID} spaceID={spaceID} />
+          <SpaceItem key={spaceID} spaceID={spaceID} onReorder={() => setReordering(true)} />
         ))}
         {topLevelSpaces.length > 1 && (
           <RailTooltip label="Reorder spaces" enabled={!expanded}>
