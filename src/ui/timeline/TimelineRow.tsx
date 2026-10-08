@@ -1017,10 +1017,14 @@ const placeholderStyle = (placeholder: string | undefined): CSSProperties | unde
   placeholder ? { backgroundImage: `url(${placeholder})`, backgroundSize: '100% 100%' } : undefined
 
 /**
- * Media revealed while hidden (show_media_previews off, or sent as a spoiler), remembered for the
- * session so rows scrolled away and back stay revealed.
+ * Media revealed while hidden (show_media_previews off, or sent as a spoiler), remembered while the
+ * room stays open so rows scrolled away and back stay revealed. Leaving the room hides it all again.
  */
 const revealedMedia = new Set<string>()
+
+useUI.subscribe((state, prev) => {
+  if (state.activeRoomID !== prev.activeRoomID) revealedMedia.clear()
+})
 
 function mediaSpoiler(content: MessageEventContent): { reason?: string } | undefined {
   const raw = content as unknown as Record<string, unknown>
