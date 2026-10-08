@@ -263,7 +263,13 @@ export function UserActions({ roomID, userID, name, children }: { roomID: RoomID
   const [pending, setPending] = useState<Pending>(null)
   const [redactRemaining, setRedactRemaining] = useState(0)
   const self = ownUserID === userID
-  const rights = useMemo(() => moderationRights(powerLevels, createEvent, ownUserID, userID), [powerLevels, createEvent, ownUserID, userID])
+  // A room we're only invited to (the profile opened from its invite screen) gives us no say in it:
+  // without our own level every right comes out false, where missing power levels would grant invites.
+  const inRoom = useChat(s => !!s.rooms[roomID])
+  const rights = useMemo(
+    () => moderationRights(powerLevels, createEvent, inRoom ? ownUserID : undefined, userID),
+    [powerLevels, createEvent, inRoom, ownUserID, userID],
+  )
   const current = membership ?? 'leave'
   const nonState = redactable.filter(evt => evt.state_key === undefined)
 

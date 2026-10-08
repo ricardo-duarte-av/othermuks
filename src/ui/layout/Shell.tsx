@@ -161,6 +161,8 @@ export function Shell() {
               ? 'details'
               : null
   }
+  // An invite has no room to show tools for, but the inviter's profile can still be opened from it.
+  else if (invite && profileUserID) panel = 'user'
 
   return (
     <div className="app-shell flex h-full">

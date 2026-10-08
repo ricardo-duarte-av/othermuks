@@ -10,7 +10,7 @@ import { fallbackDisplayName } from '@/store/events'
 import { setIgnored } from '@/store/ignored'
 import { acceptInvite, declineInvite, fetchRoomSummary, type InviteDetails } from '@/store/membership'
 import { loadProfile, useProfiles } from '@/store/profiles'
-import { showToast, useUI } from '@/store/ui'
+import { openProfile, showToast, useUI } from '@/store/ui'
 import { loadSharedRooms, type SharedRooms } from '@/store/userActions'
 import { LinkifiedText } from '@/ui/LinkifiedText'
 import { Avatar, Spinner } from '@/ui/primitives'
@@ -80,7 +80,9 @@ export function InviteView({ invite }: { invite: InviteDetails }) {
     <div className="invite-view flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-8 sm:px-8">
       <div className="my-auto flex w-full max-w-md flex-col items-center text-center">
         {invite.isDM && inviterID ? (
-          <Avatar mxc={invite.avatar ?? inviterAvatar} id={inviterID} name={inviterName} size={88} />
+          <button type="button" onClick={() => openProfile(inviterID)} title="View profile" className="rounded-full">
+            <Avatar mxc={invite.avatar ?? inviterAvatar} id={inviterID} name={inviterName} size={88} />
+          </button>
         ) : (
           <Avatar mxc={invite.avatar} id={invite.roomID} name={invite.name} size={88} className="rounded-2xl" />
         )}
@@ -100,7 +102,10 @@ export function InviteView({ invite }: { invite: InviteDetails }) {
         <p className="mt-3 text-sm">
           {inviterID ? (
             <>
-              <span className="font-medium">{inviterName}</span> invited you {invite.isDM ? 'to chat' : `to this ${kind}`}
+              <button type="button" onClick={() => openProfile(inviterID)} title={inviterID} className="font-medium hover:underline">
+                {inviterName}
+              </button>{' '}
+              invited you {invite.isDM ? 'to chat' : `to this ${kind}`}
             </>
           ) : (
             "You've been invited"
@@ -264,15 +269,18 @@ function InviterCard({ userID, name, avatar, showIdentity }: { userID: UserID; n
   return (
     <div className="invite-inviter mt-5 w-full rounded-lg border border-border bg-surface p-3 text-left">
       {showIdentity && (
-        <div className="mb-2.5 flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => openProfile(userID)}
+          title="View profile"
+          className="-mx-1.5 -mt-1.5 mb-1 flex w-[calc(100%+0.75rem)] items-center gap-2.5 rounded-md p-1.5 text-left transition-colors hover:bg-hover"
+        >
           <Avatar mxc={avatar} id={userID} name={name} size={36} />
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-sm font-medium">{name}</p>
-            <p className="truncate font-mono text-xs text-muted" title={userID}>
-              {userID}
-            </p>
-          </div>
-        </div>
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-sm font-medium">{name}</span>
+            <span className="block truncate font-mono text-xs text-muted">{userID}</span>
+          </span>
+        </button>
       )}
       {state.status === 'loading' && (
         <p className="flex items-center gap-2 text-xs text-muted">
