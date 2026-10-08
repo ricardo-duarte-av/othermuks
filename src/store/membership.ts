@@ -23,11 +23,19 @@ export interface InviteDetails {
   /** Who sent our own m.room.member invite event. */
   inviter?: UserID
   inviterName?: string
+  inviterAvatar?: string
   isDM: boolean
   encrypted: boolean
+  /** The m.room.encryption algorithm, when the room has one. */
+  encryption?: string
   isSpace: boolean
+  /** From m.room.create, when the server included it. */
+  roomVersion?: string
+  creator?: UserID
   joinRule?: string
   reason?: string
+  /** Joined members the stripped state happens to name, besides us and the inviter. */
+  members: { userID: UserID; name?: string; avatar?: string }[]
   createdAt: number
 }
 
@@ -50,8 +58,15 @@ function strippedState(invite: DBInvitedRoom): StrippedStateEvent[] {
  * usually the name, avatar, topic and our own member event.
  */
 export function inviteDetails(invite: DBInvitedRoom, ownUserID: UserID | undefined): InviteDetails {
-  const details: InviteDetails = { roomID: invite.room_id, isDM: false, encrypted: false, isSpace: false, createdAt: invite.created_at }
-  const memberNames = new Map<UserID, string>()
+  const details: InviteDetails = {
+    roomID: invite.room_id,
+    isDM: false,
+    encrypted: false,
+    isSpace: false,
+    members: [],
+    createdAt: invite.created_at,
+  }
+  const members = new Map<UserID, { name?: string; avatar?: string; membership?: string }>()
   for (const evt of strippedState(invite)) {
     switch (evt.type) {
       case 'm.room.name':
@@ -70,14 +85,21 @@ export function inviteDetails(invite: DBInvitedRoom, ownUserID: UserID | undefin
         details.joinRule = asString(evt.content.join_rule)
         break
       case 'm.room.encryption':
-        details.encrypted = !!evt.content.algorithm
+        details.encryption = asString(evt.content.algorithm)
+        details.encrypted = !!details.encryption
         break
       case 'm.room.create':
         details.isSpace = evt.content.type === 'm.space'
+        // Room versions before 11 name the creator in the content; later ones only as the sender.
+        details.roomVersion = asString(evt.content.room_version) ?? '1'
+        details.creator = asString(evt.content.creator) ?? evt.sender
         break
       case 'm.room.member': {
-        const name = asString(evt.content.displayname)
-        if (name) memberNames.set(evt.state_key, name)
+        members.set(evt.state_key, {
+          name: asString(evt.content.displayname),
+          avatar: asString(evt.content.avatar_url),
+          membership: asString(evt.content.membership),
+        })
         // Our own invite event names the inviter and says whether this is a DM.
         if (ownUserID && evt.state_key === ownUserID && evt.content.membership === 'invite') {
           details.inviter = evt.sender
@@ -88,7 +110,16 @@ export function inviteDetails(invite: DBInvitedRoom, ownUserID: UserID | undefin
       }
     }
   }
-  if (details.inviter) details.inviterName = memberNames.get(details.inviter) ?? fallbackDisplayName(details.inviter)
+  if (details.inviter) {
+    const inviter = members.get(details.inviter)
+    details.inviterName = inviter?.name ?? fallbackDisplayName(details.inviter)
+    details.inviterAvatar = inviter?.avatar
+  }
+  for (const [userID, member] of members) {
+    if (member.membership === 'join' && userID !== ownUserID && userID !== details.inviter) {
+      details.members.push({ userID, name: member.name, avatar: member.avatar })
+    }
+  }
   // A DM has no name of its own, so it shows as whoever invited us.
   if (!details.name && details.isDM && details.inviter) details.name = details.inviterName
   return details

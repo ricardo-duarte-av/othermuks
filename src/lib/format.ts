@@ -46,3 +46,22 @@ export function formatNames(names: string[]) {
   if (names.length <= 2) return names.join(' and ')
   return `${names.slice(0, 2).join(', ')} and ${names.length - 2} others`
 }
+
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * DAY],
+  ['month', 30 * DAY],
+  ['week', 7 * DAY],
+  ['day', DAY],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+]
+
+/** "3 hours ago", "yesterday", "just now". */
+export function formatRelative(ts: number, now = Date.now()) {
+  const diff = ts - now
+  for (const [unit, ms] of RELATIVE_UNITS) {
+    if (Math.abs(diff) >= ms) return relativeFormat.format(Math.round(diff / ms), unit)
+  }
+  return 'just now'
+}

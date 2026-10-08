@@ -1,5 +1,4 @@
-import { ArrowLeft, ArrowRight, Braces, Copy, X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { ArrowLeft, ArrowRight, Braces, X } from 'lucide-react'
 import type { RoomID, UserID } from '@/api/types'
 import { formatFull } from '@/lib/format'
 import { useChat } from '@/store/chat'
@@ -8,19 +7,11 @@ import { useMember } from '@/store/hooks'
 import { followRoomUpgrade, openRoomPreview } from '@/store/membership'
 import { closeRoomTool, openProfile, openRoom, openStateExplorer, showToast } from '@/store/ui'
 import { IconButton } from '@/ui/primitives'
+import { Copyable, JOIN_RULES, Mono, None, Row, Section } from './InfoRows'
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const str = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
 const serverOf = (id: string) => (id.includes(':') ? id.slice(id.indexOf(':') + 1) : undefined)
-
-const JOIN_RULES: Record<string, string> = {
-  public: 'Anyone can join',
-  invite: 'Invite only',
-  knock: 'Anyone can ask to join',
-  restricted: 'Members of allowed rooms',
-  knock_restricted: 'Members of allowed rooms, or ask to join',
-  private: 'Private',
-}
 
 const HISTORY_VISIBILITY: Record<string, string> = {
   world_readable: 'Anyone, even without joining',
@@ -35,15 +26,6 @@ function useStateContent(roomID: RoomID, type: string) {
     const rowid = s.rooms[roomID]?.state[type]?.['']
     return rowid === undefined ? undefined : s.events[rowid]
   })
-}
-
-async function copy(text: string, what: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    showToast(`${what} copied`)
-  } catch (err) {
-    showToast(`Couldn't copy: ${errorText(err)}`)
-  }
 }
 
 /** Opens a room we're in, or the join screen for one we're not. */
@@ -184,45 +166,6 @@ export function RoomInfoPanel({ roomID }: { roomID: RoomID }) {
         </button>
       </div>
     </>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section>
-      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{title}</h3>
-      <dl className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">{children}</dl>
-    </section>
-  )
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="px-3 py-2">
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-0.5 min-w-0 break-words">{children}</dd>
-    </div>
-  )
-}
-
-const None = ({ children }: { children: ReactNode }) => <span className="text-muted">{children}</span>
-
-const Mono = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={`font-mono text-[13px] ${className ?? ''}`}>{children}</span>
-)
-
-/** A value shown in full (IDs are long; wrapping beats truncating something people copy), copied on click. */
-function Copyable({ value, what }: { value: string; what: string }) {
-  return (
-    <button
-      type="button"
-      onClick={() => void copy(value, what)}
-      title={`Copy ${what.toLowerCase()}`}
-      className="group/copy flex w-full items-start gap-1.5 text-left"
-    >
-      <span className="min-w-0 flex-1 break-all font-mono text-[13px]">{value}</span>
-      <Copy size={13} className="mt-0.5 shrink-0 text-muted opacity-0 transition-opacity group-hover/copy:opacity-100" />
-    </button>
   )
 }
 

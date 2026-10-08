@@ -409,7 +409,7 @@ export function UserActions({ roomID, userID, name, children }: { roomID: RoomID
 
 const SHARED_ROOMS_STEP = 5
 
-function SharedRoomRow({ roomID }: { roomID: RoomID }) {
+export function SharedRoomRow({ roomID }: { roomID: RoomID }) {
   const meta = useChat(s => s.rooms[roomID]?.meta)
   if (!meta) return null
   return (
