@@ -7,6 +7,7 @@ import type { RoomID, UserID } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { selectOwnUserID, useChat } from '@/store/chat'
 import { useRoomPowerContext } from '@/store/hooks'
+import { acceptInvite, useInvites } from '@/store/membership'
 import { openRoom, showToast } from '@/store/ui'
 import {
   createDM,
@@ -126,7 +127,29 @@ function ConfirmCard({ title, description, confirmLabel, withReason, option, dan
 /** "Go to DM" when a joined DM with the user exists, otherwise "Create DM". */
 function DMAction({ userID, name }: { userID: UserID; name: string }) {
   const existing = useChat(s => findDMRoom(s, userID))
+  // They already asked to chat: joining their DM beats creating a second one.
+  const invite = useInvites().find(i => i.isDM && i.inviter === userID)
   const [confirming, setConfirming] = useState(false)
+  const [accepting, setAccepting] = useState(false)
+  if (invite) {
+    return (
+      <ActionButton
+        icon={accepting ? <Spinner size={14} /> : <Check size={15} />}
+        disabled={accepting}
+        onClick={async () => {
+          setAccepting(true)
+          try {
+            await acceptInvite(invite.roomID)
+          } catch (err) {
+            showToast(`Couldn't accept the invite: ${errorText(err)}`)
+            setAccepting(false)
+          }
+        }}
+      >
+        Accept DM invite
+      </ActionButton>
+    )
+  }
   if (existing) {
     return <ActionButton icon={<MessageCircle size={15} />} onClick={() => openRoom(existing)}>Go to DM</ActionButton>
   }
