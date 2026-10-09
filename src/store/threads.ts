@@ -5,7 +5,7 @@
 // to have loaded".
 import { useShallow } from 'zustand/react/shallow'
 import type { EventID, EventRowID, RoomID } from '@/api/types'
-import { loadThreadPage, selectOwnUserID, useChat } from './chat'
+import { collectListeners, loadThreadPage, selectOwnUserID, useChat } from './chat'
 import { mentionsUser } from './events'
 
 /** Thread roots of the room, most recently replied to first. */
@@ -53,6 +53,9 @@ const MAX_PAGES = 10
 const completed = new Set<EventID>()
 const queued = new Set<EventID>()
 let queue: Promise<void> = Promise.resolve()
+
+// Replies dropped by garbage collection have to be walked again when the thread is next shown.
+collectListeners.add(roots => roots.forEach(root => completed.delete(root)))
 
 /**
  * Queues a full walk of the thread, at most one at a time: opening the panel on a room with many

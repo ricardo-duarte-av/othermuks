@@ -555,6 +555,97 @@ export function findKnownMember(userID: UserID): MemberEventContent | undefined 
 
 const fetchingEvents = new Set<EventID>()
 
+export interface CollectStats {
+  rooms: number
+  events: number
+  members: number
+}
+
+/**
+ * Forgets what the given rooms loaded since they were last open: their timelines, receipts and member
+ * lists, and every event of theirs nothing else points to. What the room list shows stays (the
+ * preview event, its last edit and its sender's member event), as does all non-member state, which
+ * is small and read without opening the room (spaces, pins, widgets, emoji packs). Opening the room
+ * again paginates and loads its members afresh, the way it does after a catch-up sync.
+ * Events of rooms we're no longer in (left rooms, old search results) are dropped along the way.
+ */
+export function collectRooms(roomIDs: ReadonlySet<RoomID>): CollectStats {
+  const s = get()
+  const keep = new Set<EventRowID>()
+  const rooms = { ...s.rooms }
+  let members = 0
+  for (const roomID of roomIDs) {
+    const room = rooms[roomID]
+    if (!room) continue
+    const keepMembers = new Set<UserID>()
+    for (const rowid of [room.meta.preview_event_rowid, ...room.pending]) {
+      const evt = s.events[rowid]
+      if (!evt) continue
+      keep.add(rowid)
+      if (evt.last_edit_rowid) keep.add(evt.last_edit_rowid)
+      keepMembers.add(evt.sender)
+    }
+    const state: RoomData['state'] = {}
+    for (const [type, keys] of Object.entries(room.state)) {
+      if (type !== 'm.room.member') {
+        state[type] = keys
+        for (const rowid of Object.values(keys)) keep.add(rowid)
+        continue
+      }
+      const kept: Record<string, EventRowID> = {}
+      for (const [userID, rowid] of Object.entries(keys)) {
+        if (keepMembers.has(userID)) {
+          kept[userID] = rowid
+          keep.add(rowid)
+        } else {
+          members++
+          requestedMembers.delete(`${roomID}\0${userID}`)
+        }
+      }
+      state[type] = kept
+    }
+    rooms[roomID] = {
+      ...room,
+      timeline: [],
+      state,
+      receipts: {},
+      hasMore: true,
+      paginating: false,
+      membersLoaded: false,
+      generation: room.generation + 1,
+    }
+  }
+
+  const events: Record<EventRowID, TimelineEvent> = {}
+  const eventIDs: Record<EventID, EventRowID> = {}
+  let dropped = 0
+  for (const evt of Object.values(s.events)) {
+    const kept = rooms[evt.room_id] && (!roomIDs.has(evt.room_id) || keep.has(evt.rowid))
+    if (!kept) {
+      dropped++
+      fetchingEvents.delete(evt.event_id)
+      continue
+    }
+    events[evt.rowid] = evt
+    if (evt.event_id) eventIDs[evt.event_id] = evt.rowid
+  }
+
+  const threads: Record<EventID, EventRowID[]> = {}
+  const shrunkThreads: EventID[] = []
+  for (const [root, replies] of Object.entries(s.threads)) {
+    const kept = replies.filter(rowid => events[rowid])
+    if (kept.length !== replies.length) shrunkThreads.push(root)
+    if (kept.length) threads[root] = kept
+  }
+  for (const listener of collectListeners) listener(shrunkThreads)
+
+  set({ rooms, events, eventIDs, threads })
+  return { rooms: roomIDs.size, events: dropped, members }
+}
+
+/** Told which threads lost replies to a collection, so whatever remembers loading them can load them again. */
+export const collectListeners = new Set<(threadRoots: EventID[]) => void>()
+
 /** Fetches an event that isn't in the store yet (e.g. an old reply target). Tried once per event. */
 export async function fetchEvent(roomID: RoomID, eventID: EventID) {
   if (get().eventIDs[eventID] !== undefined || fetchingEvents.has(eventID)) return

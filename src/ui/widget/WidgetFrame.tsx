@@ -6,6 +6,7 @@ import { useCallback, useRef } from 'react'
 import type { RoomID } from '@/api/types'
 import { selectOwnUserID, useChat } from '@/store/chat'
 import { displayNameOf } from '@/store/events'
+import { keepRoomsWhile } from '@/store/gc'
 import { openRoom, openWidget, useUI } from '@/store/ui'
 import { addWidgetListener, approveWidgetCapabilities, widgetPermissionKey, type RoomWidget } from '@/store/widgets'
 import { OthermuksWidgetDriver, toIRoomEvent } from './driver'
@@ -31,6 +32,9 @@ type Movable = HTMLElement & { moveBefore?: (node: Node, child: Node | null) => 
 const canMoveWithoutReload = () => typeof (HTMLElement.prototype as Movable).moveBefore === 'function'
 
 const liveWidgets = new Map<string, LiveWidget>()
+
+// A running widget (a call popped out or kept on screen) is fed its room's timeline, so that room stays loaded.
+keepRoomsWhile(() => [...liveWidgets.keys()].map(fullID => fullID.slice(0, fullID.indexOf('|'))))
 
 function popoutButton(label: string, glyph: string, onClick: () => void) {
   const button = document.createElement('button')

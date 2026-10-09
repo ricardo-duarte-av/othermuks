@@ -16,6 +16,7 @@ import { markOnce } from '@/lib/perf'
 import { handleRPCEvent, useChat } from './chat'
 import { applyCachedSession, clearRoomCache, openRoomCache } from './cache'
 import { loadSubscribedPacks } from './emoji'
+import { collectGarbage, startGarbageCollection } from './gc'
 import { clearMediaCache, setupMediaCache } from './mediacache'
 import { getPreference, useLocalPrefs } from './preferences'
 import { wireWebPush } from './webpush'
@@ -165,6 +166,7 @@ async function startSession() {
     log.warn('room cache unavailable, doing a full sync', err)
   }
   client.start()
+  startGarbageCollection()
   codeblockStyle = ''
   refreshCodeblockStyle()
 }
@@ -202,6 +204,8 @@ function installDebugHook() {
       chat: useChat,
       ui: useUI,
       client,
+      /** Runs garbage collection now instead of waiting for the next round. */
+      gc: collectGarbage,
       room(roomID = useUI.getState().activeRoomID) {
         const s = useChat.getState()
         const room = roomID ? s.rooms[roomID] : undefined
