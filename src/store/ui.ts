@@ -207,10 +207,22 @@ export interface LightboxImage {
    * filled it, and the element itself, which is re-measured on close in case the timeline has moved.
    */
   from?: { rect: { top: number; left: number; width: number; height: number }; url?: string; element?: HTMLElement }
+  /** The other images of a gallery it was opened from, which the viewer steps through. */
+  gallery?: { images: Omit<LightboxImage, 'gallery'>[]; index: number }
+  /** Reached by stepping through a gallery rather than opened from its thumbnail, so it doesn't zoom in. */
+  stepped?: boolean
 }
 
 export function openLightbox(url: string, name?: string, extra: Omit<LightboxImage, 'url' | 'name'> = {}) {
   useUI.setState({ lightbox: { url, name, ...extra } })
+}
+
+/** Moves the viewer to the previous (-1) or next (+1) image of its gallery, wrapping around. */
+export function stepLightbox(delta: number) {
+  const gallery = useUI.getState().lightbox?.gallery
+  if (!gallery || gallery.images.length < 2) return
+  const index = (gallery.index + delta + gallery.images.length) % gallery.images.length
+  useUI.setState({ lightbox: { ...gallery.images[index], gallery: { ...gallery, index }, stepped: true } })
 }
 
 export function setActiveSpace(spaceID: string) {

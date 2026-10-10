@@ -1,8 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { Download, ExternalLink, RotateCcw, RotateCw, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, ExternalLink, RotateCcw, RotateCw, X } from 'lucide-react'
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { cn } from '@/lib/cn'
-import { showToast, useUI, type LightboxImage } from '@/store/ui'
+import { showToast, stepLightbox, useUI, type LightboxImage } from '@/store/ui'
 import { Spinner } from './primitives'
 
 const EXTENSIONS: Record<string, string> = {
@@ -84,7 +84,7 @@ export function Lightbox() {
           aria-describedby={undefined}
           className="lightbox fixed inset-0 z-[61] flex animate-[lightbox-in_150ms_ease-out] flex-col outline-none"
         >
-          {lightbox && <LightboxView key={lightbox.url} ref={view} onClosing={() => setClosing(true)} {...lightbox} />}
+          {lightbox && <LightboxView key={`${lightbox.gallery?.index ?? ''}:${lightbox.url}`} ref={view} onClosing={() => setClosing(true)} {...lightbox} />}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -118,7 +118,7 @@ interface LightboxViewProps extends LightboxImage {
   onClosing: () => void
 }
 
-function LightboxView({ url, name, placeholder, width, height, from, ref, onClosing }: LightboxViewProps) {
+function LightboxView({ url, name, placeholder, width, height, from, gallery, stepped, ref, onClosing }: LightboxViewProps) {
   const [rotation, setRotation] = useState(0)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const rotate = (delta: number) => setRotation(r => r + delta)
@@ -126,6 +126,7 @@ function LightboxView({ url, name, placeholder, width, height, from, ref, onClos
   const sideways = quarter === 90 || quarter === 270
   // The thumbnail is the better stand-in; the blurhash is what's left when there isn't one.
   const preview = from?.url ?? placeholder
+  const browsable = !!gallery && gallery.images.length > 1
   // Kept mounted a moment past the load so it can fade under the original instead of blinking away.
   const [previewMounted, setPreviewMounted] = useState(true)
   const box = fittedSize(width, height, sideways)
@@ -180,7 +181,7 @@ function LightboxView({ url, name, placeholder, width, height, from, ref, onClos
   useLayoutEffect(() => {
     const stage = stageRef.current
     const target = thumbnailRect()
-    if (!stage || !target || !box || reducedMotion()) return
+    if (!stage || !target || !box || stepped || reducedMotion()) return
     stage.style.transition = 'none'
     stage.style.transform = transformOnto(stage.getBoundingClientRect(), target)
     const frame = requestAnimationFrame(() => {
@@ -195,6 +196,8 @@ function LightboxView({ url, name, placeholder, width, height, from, ref, onClos
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r') rotate(90)
       else if (e.key === 'R') rotate(-90)
+      else if (e.key === 'ArrowLeft' && !closingRef.current) stepLightbox(-1)
+      else if (e.key === 'ArrowRight' && !closingRef.current) stepLightbox(1)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -210,7 +213,14 @@ function LightboxView({ url, name, placeholder, width, height, from, ref, onClos
           closing && 'opacity-0',
         )}
       >
-        <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-medium text-white/90">{name || 'Image'}</Dialog.Title>
+        <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-medium text-white/90">
+          {name || 'Image'}
+          {browsable && (
+            <span className="ml-2 font-normal text-white/60">
+              {gallery.index + 1} / {gallery.images.length}
+            </span>
+          )}
+        </Dialog.Title>
         <ToolbarButton label="Rotate left (Shift+R)" onClick={() => rotate(-90)}>
           <RotateCcw size={18} />
         </ToolbarButton>
@@ -287,7 +297,34 @@ function LightboxView({ url, name, placeholder, width, height, from, ref, onClos
             />
           </>
         )}
+        {browsable && !closing && (
+          <>
+            <StepButton label="Previous image (←)" className="left-4" onClick={() => stepLightbox(-1)}>
+              <ChevronLeft size={24} />
+            </StepButton>
+            <StepButton label="Next image (→)" className="right-4" onClick={() => stepLightbox(1)}>
+              <ChevronRight size={24} />
+            </StepButton>
+          </>
+        )}
       </div>
     </>
+  )
+}
+
+function StepButton({ label, className, onClick, children }: { label: string; className: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className={cn(
+        'absolute top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white/90 transition hover:bg-black/70 hover:text-white focus-visible:outline-2 focus-visible:outline-white',
+        className,
+      )}
+    >
+      {children}
+    </button>
   )
 }

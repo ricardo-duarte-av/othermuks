@@ -32,9 +32,10 @@ import { motion } from 'motion/react'
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { client } from '@/api/client'
-import { avatarURL, mediaURL, userColorIndex } from '@/api/media'
+import { avatarURL, encryptedMediaURL, mediaURL, userColorIndex } from '@/api/media'
 import type {
   ContentURI,
+  EncryptedFile,
   EventID,
   EventRowID,
   LocalContent,
@@ -55,8 +56,11 @@ import {
   displayContent,
   hasNoRenderer,
   displayNameOf,
+  describeGallery,
   fallbackDisplayName,
+  galleryItems,
   isFailedSend,
+  isGallery,
   isMessageLike,
   isPendingEvent,
   isRuleMessage,
@@ -864,9 +868,87 @@ function MessageContent({ roomID, evt, content, localContent, senderName }: Cont
         </>
       )
     }
+    case 'm.gallery':
+    case 'dm.filament.gallery':
+      return <GalleryContent roomID={roomID} evt={evt} content={content} localContent={localContent} senderName={senderName} />
     default:
       return <TextBody content={content} localContent={localContent} msgtype={msgtype} senderName={senderName} spoilerKey={evt.event_id} />
   }
+}
+
+const hasText = (content: MessageEventContent) =>
+  (typeof content.body === 'string' && !!content.body.trim()) || (typeof content.formatted_body === 'string' && !!content.formatted_body.trim())
+
+/**
+ * MSC4274 gallery: images and videos in a grid of square tiles (or as a single message when there's
+ * one), other files listed under it, then the caption. Clicking an image opens the viewer, which
+ * steps through the gallery's other images.
+ */
+function GalleryContent({ roomID, evt, content, localContent, senderName }: ContentProps & { roomID: RoomID }) {
+  const showPreviews = usePreference('show_media_previews', roomID)
+  const maxWidth = usePreference('max_image_width', roomID)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const items = galleryMedia(content)
+  const visual = items.filter(item => item.msgtype === 'm.image' || item.msgtype === 'm.video')
+  const others = items.filter(item => item.msgtype === 'm.audio' || item.msgtype === 'm.file')
+  const columns = visual.length === 2 || visual.length === 4 ? 2 : 3
+
+  // Only images on show join the viewer: stepping onto a hidden one would reveal it.
+  const openImage = (index: number) => {
+    const grid = gridRef.current
+    const shown = visual.flatMap((item, i) => {
+      const { url } = mediaSources(item)
+      if (item.msgtype !== 'm.image' || !url) return []
+      return (showPreviews && !mediaSpoiler(item)) || revealedMedia.has(url) ? [i] : []
+    })
+    const images = shown.map(i => {
+      const item = visual[i]
+      const { url, inline } = mediaSources(item)
+      const element = grid?.querySelector<HTMLElement>(`[data-gallery-item="${i}"]`) ?? undefined
+      const rect = element?.getBoundingClientRect()
+      const info = item.info ?? {}
+      return {
+        url: url!,
+        name: item.filename ?? item.body,
+        placeholder: blurhashDataURL(blurhashOf(info)),
+        width: info.w,
+        height: info.h,
+        from: rect && { rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }, url: inline ?? url, element },
+      }
+    })
+    const at = shown.indexOf(index)
+    if (at < 0) return
+    openLightbox(images[at].url, images[at].name, { ...images[at], gallery: { images, index: at } })
+  }
+
+  return (
+    <>
+      {visual.length === 1 ? (
+        <MediaContent roomID={roomID} content={visual[0]} msgtype={visual[0].msgtype} />
+      ) : (
+        visual.length > 1 && (
+          <div
+            ref={gridRef}
+            className="media-gallery mt-1 grid max-w-full gap-0.5 overflow-hidden rounded-lg"
+            style={{ width: Math.min(maxWidth, 140 * columns), gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+          >
+            {visual.map((item, i) => (
+              <div key={i} data-gallery-item={i} className="aspect-square min-w-0">
+                <MediaContent roomID={roomID} content={item} msgtype={item.msgtype} onOpenImage={() => openImage(i)} />
+              </div>
+            ))}
+          </div>
+        )
+      )}
+      {others.map((item, i) => (
+        <MediaContent key={i} roomID={roomID} content={item} msgtype={item.msgtype} />
+      ))}
+      {hasText(content) && (
+        <TextBody content={content} localContent={localContent} msgtype="m.text" senderName={senderName} className="mt-1" spoilerKey={evt.event_id} />
+      )}
+      {!items.length && <p className="text-sm italic text-muted">Empty gallery</p>}
+    </>
+  )
 }
 
 /** "Message deleted", naming who deleted it (when not the sender) and why, from the redaction event. */
@@ -977,11 +1059,25 @@ function fitSize(w: number | undefined, h: number | undefined, maxW: number, max
   return { width: Math.round(w * scale), height: Math.round(h * scale) }
 }
 
+/**
+ * Gallery items, marked so their encrypted files are requested with their keys: gomuks only caches
+ * keys for the media fields it knows, which don't include MSC4274 items.
+ */
+const keyedContents = new WeakSet<MessageEventContent>()
+
+function galleryMedia(content: MessageEventContent): MessageEventContent[] {
+  const items = galleryItems(content)
+  for (const item of items) keyedContents.add(item)
+  return items
+}
+
 /** Original media URL, plus the sender-provided thumbnail for inline display where it makes sense. */
 function mediaSources(content: MessageEventContent) {
   const info = content.info ?? {}
-  const url = mediaURL(content.file?.url ?? content.url, !!content.file)
-  const thumbnail = info.thumbnail_file ? mediaURL(info.thumbnail_file.url, true) : mediaURL(info.thumbnail_url)
+  const keyed = keyedContents.has(content)
+  const encrypted = (file: EncryptedFile) => (keyed ? encryptedMediaURL(file) : mediaURL(file.url, true))
+  const url = content.file ? encrypted(content.file) : mediaURL(content.url)
+  const thumbnail = info.thumbnail_file ? encrypted(info.thumbnail_file) : mediaURL(info.thumbnail_url)
   const inline = thumbnail && info.mimetype !== 'image/gif' ? thumbnail : url
   return { url, thumbnail, inline }
 }
@@ -1055,7 +1151,15 @@ function MediaKindIcon({ kind, size = 26 }: { kind: 'image' | 'video' | 'sticker
   return <Icon size={size} className="shrink-0 text-muted" aria-hidden />
 }
 
-function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: MessageEventContent; msgtype: string }) {
+interface MediaContentProps {
+  roomID: RoomID
+  content: MessageEventContent
+  msgtype: string
+  /** Shown as a gallery tile: fills its box, cropped, and clicking an image calls this instead of opening the viewer. */
+  onOpenImage?: () => void
+}
+
+function MediaContent({ roomID, content, msgtype, onOpenImage }: MediaContentProps) {
   const showPreviews = usePreference('show_media_previews', roomID)
   const autoplayGifs = usePreference('autoplay_gifs', roomID)
   const maxWidth = usePreference('max_image_width', roomID)
@@ -1071,6 +1175,7 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
   const size = fitSize(info.w, info.h, isSticker ? 180 : maxWidth, isSticker ? 180 : maxHeight)
   const boxStyle = size ? { width: size.width, aspectRatio: `${size.width} / ${size.height}` } : undefined
   const name = content.filename ?? content.body
+  const tile = !!onOpenImage
 
   // show_media_previews off: nothing is downloaded until the user asks for it. Until then show the
   // blurhash (when the sender included one) and what the event says about the file. A spoiler hides
@@ -1095,26 +1200,36 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
         aria-label={`${action}${label ? `: ${label}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`}
         title={action}
         className={cn(
-          'media-hidden group/hidden relative mt-1 flex max-w-full flex-col overflow-hidden rounded-lg border border-border text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          'media-hidden group/hidden relative flex max-w-full flex-col overflow-hidden text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+          tile ? 'size-full' : 'mt-1 rounded-lg border border-border',
           placeholder ? 'bg-surface' : 'bg-surface-2/60',
         )}
         style={{
-          width: Math.max(size?.width ?? Math.min(maxWidth, 320), 220),
-          aspectRatio: size ? `${size.width} / ${size.height}` : '4 / 3',
-          minHeight: 132,
+          ...(!tile && {
+            width: Math.max(size?.width ?? Math.min(maxWidth, 320), 220),
+            aspectRatio: size ? `${size.width} / ${size.height}` : '4 / 3',
+            minHeight: 132,
+          }),
           ...placeholderStyle(placeholder),
         }}
       >
         {blurred && (
           <img src={blurred} alt="" aria-hidden draggable={false} className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
         )}
-        <span className="relative flex flex-1 flex-col items-center justify-center gap-2 p-3">
-          {!placeholder && !blurred && (spoiler ? <EyeOff size={26} className="shrink-0 text-muted" aria-hidden /> : <MediaKindIcon kind={kind} />)}
-          <span className="flex items-center gap-1.5 rounded-full bg-bg/85 px-3 py-1 text-sm font-medium text-fg shadow-sm backdrop-blur-sm transition-transform group-hover/hidden:scale-105">
-            {spoiler ? <EyeOff size={14} /> : <Eye size={14} />} {action}
-          </span>
+        <span className={cn('relative flex flex-1 flex-col items-center justify-center gap-2', tile ? 'p-1' : 'p-3')}>
+          {!placeholder && !blurred && !tile && (spoiler ? <EyeOff size={26} className="shrink-0 text-muted" aria-hidden /> : <MediaKindIcon kind={kind} />)}
+          {tile ? (
+            // A tile is too small for the label: the icon alone says what clicking does.
+            <span className="grid size-8 place-items-center rounded-full bg-bg/85 text-fg shadow-sm backdrop-blur-sm transition-transform group-hover/hidden:scale-110">
+              {spoiler ? <EyeOff size={15} /> : <Eye size={15} />}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 rounded-full bg-bg/85 px-3 py-1 text-sm font-medium text-fg shadow-sm backdrop-blur-sm transition-transform group-hover/hidden:scale-105">
+              {spoiler ? <EyeOff size={14} /> : <Eye size={14} />} {action}
+            </span>
+          )}
         </span>
-        {(label || details.length > 0) && (
+        {!tile && (label || details.length > 0) && (
           <span
             className={cn(
               'relative block w-full px-2.5 pb-2 pt-5 text-xs leading-snug',
@@ -1132,7 +1247,7 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
   if (!spoiler || !visual) return renderMedia(url)
   // A revealed spoiler can be put away again.
   return (
-    <span className="media-spoiler-revealed group/spoiler relative block w-fit max-w-full">
+    <span className={cn('media-spoiler-revealed group/spoiler relative block max-w-full', tile ? 'size-full' : 'w-fit')}>
       {renderMedia(url)}
       <button
         type="button"
@@ -1169,6 +1284,7 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
               // Plain clicks open the lightbox; middle/modifier clicks keep opening a new tab.
               if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
               e.preventDefault()
+              if (onOpenImage) return onOpenImage()
               // The thumbnail's box and pixels, so the viewer can grow out of what was just clicked.
               const rect = e.currentTarget.getBoundingClientRect()
               openLightbox(url, name, {
@@ -1183,11 +1299,12 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
               })
             }}
             className={cn(
-              'media-image mt-1 block max-w-full cursor-zoom-in overflow-hidden rounded-lg',
-              !isSticker && 'border border-border bg-surface',
+              'media-image block max-w-full cursor-zoom-in overflow-hidden',
+              tile ? 'size-full bg-surface' : 'mt-1 rounded-lg',
+              !isSticker && !tile && 'border border-border bg-surface',
             )}
             data-sticker={isSticker || undefined}
-            style={{ ...(boxStyle ?? { maxWidth }), ...placeholderStyle(placeholder) }}
+            style={{ ...(tile ? undefined : (boxStyle ?? { maxWidth })), ...placeholderStyle(placeholder) }}
           >
             <FadeInImage key={src} src={src} alt={content.body} placeholder={placeholder} />
           </a>
@@ -1200,8 +1317,8 @@ function MediaContent({ roomID, content, msgtype }: { roomID: RoomID; content: M
             poster={thumbnail}
             controls
             preload="none"
-            className={cn('media-video mt-1 max-w-full rounded-lg', !placeholder && 'bg-black')}
-            style={{ ...(boxStyle ?? { width: Math.min(420, maxWidth) }), ...placeholderStyle(placeholder) }}
+            className={cn('media-video max-w-full', tile ? 'size-full object-cover' : 'mt-1 rounded-lg', !placeholder && 'bg-black')}
+            style={{ ...(tile ? undefined : (boxStyle ?? { width: Math.min(420, maxWidth) })), ...placeholderStyle(placeholder) }}
           />
         )
       case 'm.audio':
@@ -1345,6 +1462,45 @@ function ReplyBody({ evt, lastEdit, senderName }: { evt: TimelineEvent; lastEdit
           inline && <img src={inline} alt={content.body} loading="lazy" className="max-h-28 max-w-48 rounded object-cover" />
         )}
         {hasCaption && (
+          <TextBody
+            content={content}
+            localContent={localContent}
+            msgtype="m.text"
+            senderName={senderName}
+            className="text-[13px] text-fg/80"
+            allowBigEmoji={false}
+            spoilerKey={evt.event_id}
+          />
+        )}
+      </span>
+    )
+  }
+  if (isGallery(content)) {
+    const items = galleryMedia(content)
+    // Thumbnails of the first few images, as far as show_media_previews and spoilers allow.
+    const thumbs = items
+      .filter(item => item.msgtype === 'm.image')
+      .map(item => {
+        const { url, inline } = mediaSources(item)
+        return url && inline && ((showPreviews && !mediaSpoiler(item)) || revealedMedia.has(url)) ? inline : undefined
+      })
+      .filter((src): src is string => !!src)
+      .slice(0, 4)
+    return (
+      <span className="flex flex-col items-start gap-1">
+        <span className="flex min-w-0 max-w-full items-center gap-2 text-muted">
+          {thumbs.length ? (
+            <span className="flex shrink-0 gap-0.5">
+              {thumbs.map((src, i) => (
+                <img key={i} src={src} alt="" loading="lazy" className="size-10 rounded object-cover" />
+              ))}
+            </span>
+          ) : (
+            <MediaKindIcon kind="image" size={16} />
+          )}
+          <span className="min-w-0 truncate">{describeGallery(items)}</span>
+        </span>
+        {hasText(content) && (
           <TextBody
             content={content}
             localContent={localContent}

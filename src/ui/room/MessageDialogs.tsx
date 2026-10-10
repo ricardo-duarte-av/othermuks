@@ -8,7 +8,7 @@ import type { LocalContent, MessageEventContent, RoomID, UserID } from '@/api/ty
 import { cn } from '@/lib/cn'
 import { formatDay, formatFull, formatTime, isSameDay } from '@/lib/format'
 import { selectOwnUserID, useChat } from '@/store/chat'
-import { displayNameOf, normalizeEvent, originalEvent, type TimelineEvent } from '@/store/events'
+import { describeGallery, displayNameOf, galleryItems, isGallery, normalizeEvent, originalEvent, type TimelineEvent } from '@/store/events'
 import { useMember } from '@/store/hooks'
 import { loadReactionDetails, reactionSignature, useReactionDetails } from '@/store/reactions'
 import { openProfile, showToast, useUI, type MessageDialog } from '@/store/ui'
@@ -152,6 +152,7 @@ function ContentPreview({ content, localContent }: { content: MessageEventConten
       </p>
     )
   }
+  if (isGallery(content) && !content.body?.trim()) return <p className="text-sm text-muted">[gallery] {describeGallery(galleryItems(content))}</p>
   const html = localContent?.sanitized_html
   return html ? (
     <div

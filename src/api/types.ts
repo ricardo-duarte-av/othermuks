@@ -92,12 +92,10 @@ export interface RawDBEvent {
 
 export interface EncryptedFile {
   url: ContentURI
-  k: string
-  v: 'v2'
-  ext: true
-  alg: 'A256CTR'
-  key_ops: string[]
-  kty: 'oct'
+  key?: { k: string; alg: 'A256CTR'; ext: true; key_ops: string[]; kty: 'oct' }
+  iv?: string
+  hashes?: { sha256?: string }
+  v?: string
 }
 
 export interface MediaInfo {

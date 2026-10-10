@@ -345,8 +345,52 @@ export function previewText(evt: TimelineEvent | undefined): string {
   if (evt.type === 'm.room.encrypted') return 'Encrypted message'
   if (evt.local_content?.preview_text) return evt.local_content.preview_text
   const body = evt.content.body
+  const content = evt.content as unknown as MessageEventContent
+  if (isGallery(content) && !(typeof body === 'string' && body.trim())) return describeGallery(galleryItems(content))
   if (typeof body === 'string') {
     return evt.content.msgtype === 'm.emote' ? `* ${body}` : body
   }
   return ''
+}
+
+/** MSC4274 inline media galleries, under the stable msgtype and the unstable one clients send today. */
+export const GALLERY_MSGTYPES = new Set(['m.gallery', 'dm.filament.gallery'])
+const GALLERY_ITEMTYPES = new Set(['m.image', 'm.video', 'm.audio', 'm.file'])
+
+export function isGallery(content: Pick<MessageEventContent, 'msgtype'>): boolean {
+  return GALLERY_MSGTYPES.has(content.msgtype)
+}
+
+/**
+ * A gallery's items as ordinary media message contents (itemtype becomes msgtype), so they render
+ * like single media messages. Items of an unknown type or without a file are left out.
+ */
+export function galleryItems(content: MessageEventContent): MessageEventContent[] {
+  const raw = (content as unknown as { itemtypes?: unknown }).itemtypes
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap(item => {
+    if (!item || typeof item !== 'object') return []
+    const { itemtype, ...rest } = item as Record<string, unknown>
+    if (typeof itemtype !== 'string' || !GALLERY_ITEMTYPES.has(itemtype)) return []
+    const file = rest.file as { url?: unknown } | undefined
+    if (typeof rest.url !== 'string' && typeof file?.url !== 'string') return []
+    return [{ ...rest, msgtype: itemtype, body: typeof rest.body === 'string' ? rest.body : '' } as MessageEventContent]
+  })
+}
+
+/** "3 images", "2 images and a video", for galleries without a caption. */
+export function describeGallery(items: MessageEventContent[]): string {
+  const nouns: Record<string, [string, string]> = {
+    'm.image': ['an image', 'images'],
+    'm.video': ['a video', 'videos'],
+    'm.audio': ['an audio file', 'audio files'],
+    'm.file': ['a file', 'files'],
+  }
+  const parts = Object.entries(nouns).flatMap(([type, [one, many]]) => {
+    const count = items.filter(item => item.msgtype === type).length
+    return count === 0 ? [] : [count === 1 ? one : `${count} ${many}`]
+  })
+  if (!parts.length) return 'Empty gallery'
+  const text = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }

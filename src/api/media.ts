@@ -1,4 +1,4 @@
-import type { ContentURI, UserID } from './types'
+import type { ContentURI, EncryptedFile, UserID } from './types'
 
 // Same-origin: root-relative URLs authenticated by the gomuks cookie.
 // Remote: absolute URLs on the backend with gomuks' short-lived image_auth token, since
@@ -53,6 +53,18 @@ export function mediaURL(mxc?: ContentURI, encrypted = false): string | undefine
   if (!parsed) return undefined
   const [server, mediaID] = parsed
   return gomuksMediaURL(`media/${encodeURIComponent(server)}/${encodeURIComponent(mediaID)}?encrypted=${encrypted}`)
+}
+
+/**
+ * URL for encrypted media that carries its keys, for files gomuks didn't find in an event it knows
+ * how to read (such as MSC4274 gallery items) and so has no keys cached for. gomuks still prefers
+ * its cached keys when it has them.
+ */
+export function encryptedMediaURL(file: EncryptedFile): string | undefined {
+  const url = mediaURL(file.url, true)
+  if (!url || !file.key?.k || !file.iv || !file.hashes?.sha256) return url
+  const keys = new URLSearchParams({ crypto_version: 'v2', crypto_key: file.key.k, crypto_iv: file.iv, crypto_hash: file.hashes.sha256 })
+  return `${url}&${keys}`
 }
 
 export function avatarURL(mxc?: ContentURI, encrypted = false): string | undefined {
