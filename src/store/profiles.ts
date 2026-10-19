@@ -34,8 +34,8 @@ export async function loadProfile(userID: UserID, force = false) {
 
 // ---- Profile fields othermuks shows and edits ----
 
-/** Status keys (MSC4426), stable first: the stable one wins when several are set. */
-export const STATUS_KEYS = ['m.status', 'org.matrix.msc4426.status', 'org.msc.4426.status'] as const
+/** Status keys (MSC4426): only the unstable prefix until the MSC is merged. */
+export const STATUS_KEYS = ['org.matrix.msc4426.status'] as const
 /** Time zone keys (MSC4175), stable first. */
 export const TIMEZONE_KEYS = ['m.tz', 'us.cloke.msc4175.tz'] as const
 export const PRONOUNS_KEY = 'io.fsky.nyx.pronouns'

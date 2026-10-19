@@ -25,8 +25,6 @@ const KNOWN_FIELDS = new Set([
   'gay.fomx.biography',
   'moe.sable.app.bio',
   'io.fsky.nyx.pronouns',
-  'm.status',
-  'org.msc.4426.status',
   'org.matrix.msc4426.status',
   'm.tz',
   'us.cloke.msc4175.tz',
